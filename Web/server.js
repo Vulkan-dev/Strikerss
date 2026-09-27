@@ -677,7 +677,7 @@ function initOAuthServer(client) {
         }
     });
 
-    const server = app.listen(port, () => {
+    const server = app.listen(port, '0.0.0.0', () => {
         client.logs ? client.logs.success(`[OAUTH] Member Restorer Web Server running on port ${port}`) : console.log(`[OAUTH] Server running on port ${port}`);
         console.log(`[OAUTH] Redirect URI: ${redirectUri}`);
     });

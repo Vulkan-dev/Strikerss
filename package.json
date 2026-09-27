@@ -40,10 +40,11 @@
     "name": "strikers",
     "version": "1.0.0",
     "description": "Strikers - Advanced Discord Bot with Server Backup, OAuth2 Member Restorer & More",
-    "main": "./Envcreate/start",
+    "main": "index.js",
     "scripts": {
-        "start": "node ./Envcreate/start",
-        "bot": "node index.js"
+        "start": "node index.js",
+        "bot": "node index.js",
+        "setup": "node ./Envcreate/start"
     },
     "author": "Vulkan-dev",
     "license": "UNLICENSED",
