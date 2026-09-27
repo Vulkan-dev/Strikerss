@@ -18,7 +18,7 @@ module.exports = () => {
     // Unhandled rejection
     process.on('unhandledRejection', (err) => {
         // Filter out expected DNS or cancelled requests
-        if (err && err.message && err.message.includes('ECONNREFUSED')) return;
+        if (err && err.message && (err.message.includes('ECONNREFUSED') || err.message.includes('buffering timed out'))) return;
         console.error(`[ERROR] Unhandled Rejection:`, err.message || err);
     });
 

@@ -6,6 +6,8 @@ module.exports = (client) => {
     // Function to run auto backup for all joined guilds
     async function runAutoBackupRoutine() {
         if (!client.guilds.cache.size) return;
+        const mongoose = require('mongoose');
+        if (mongoose.connection.readyState !== 1) return;
 
         const dateStr = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
         const stateName = `Auto_${dateStr}`;

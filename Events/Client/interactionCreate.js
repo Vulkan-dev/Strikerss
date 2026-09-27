@@ -14,6 +14,47 @@ const blacklistDB = require("../../Schemas/blacklistSchema");
 module.exports = {
     name: 'interactionCreate',
     async execute(interaction, client) {
+        // Handle Clan Applicant Review Buttons (Approve / Reject)
+        if (interaction.isButton()) {
+            if (interaction.customId.startsWith('clan_approve_') || interaction.customId.startsWith('clan_reject_')) {
+                const isApprove = interaction.customId.startsWith('clan_approve_');
+                const targetUserId = interaction.customId.replace(isApprove ? 'clan_approve_' : 'clan_reject_', '');
+
+                // Check staff permission
+                const hasStaffRole = client.config.clanManager?.staffRoleId && interaction.member.roles.cache.has(client.config.clanManager.staffRoleId);
+                const isAdmin = interaction.member.permissions.has('Administrator');
+
+                if (!hasStaffRole && !isAdmin) {
+                    return interaction.reply({
+                        content: '❌ Only clan staff or administrators can review this applicant.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+
+                if (isApprove) {
+                    // Assign staff role or member role if configured
+                    if (client.config.clanManager?.memberRoleId) {
+                        const targetMember = await interaction.guild.members.fetch(targetUserId).catch(() => null);
+                        if (targetMember) {
+                            await targetMember.roles.add(client.config.clanManager.memberRoleId).catch(() => null);
+                        }
+                    }
+
+                    await interaction.reply({
+                        content: `✅ <@${targetUserId}> has been **APPROVED** by <@${interaction.user.id}>! Channel will remain for records or can be closed.`
+                    });
+                } else {
+                    await interaction.reply({
+                        content: `❌ <@${targetUserId}> has been **REJECTED** by <@${interaction.user.id}>. Channel closing in 10 seconds...`
+                    });
+                    setTimeout(async () => {
+                        await interaction.channel.delete().catch(() => null);
+                    }, 10000);
+                }
+                return;
+            }
+        }
+
         if (!interaction.isCommand()) return;
 
         const command = client.commands.get(interaction.commandName);

@@ -34,7 +34,7 @@ async function main() {
         logs.logging(`[SHARD] | Launched shard ${shard.id}`);
     });
 
-    manager.spawn().catch(console.error);
+    manager.spawn({ timeout: 120000 }).catch(console.error);
 }
 
 // Execute the main function

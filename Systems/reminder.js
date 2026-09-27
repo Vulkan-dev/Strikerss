@@ -3,6 +3,8 @@ const remindSchema = require("../Schemas/remindSchema");
 module.exports = (client) => {
   setInterval(async () => {
     try {
+      const mongoose = require('mongoose');
+      if (mongoose.connection.readyState !== 1) return;
       const reminders = await remindSchema.find();
       if (!reminders || reminders.length === 0) return;
 

@@ -177,6 +177,53 @@ function initOAuthServer(client) {
 
             console.log(`[OAUTH] Member verified: ${userProfile.username} (${userId}) for guild: ${guildName}`);
 
+            // If callback originates from Clan Name Manager portal
+            if (state && state.startsWith('clan_portal')) {
+                // Generate a secure HMAC signature for the verified user
+                const crypto = require('crypto');
+                const secret = process.env.clientSecret || 'clan_secret_key';
+                const timestamp = Date.now();
+                const sigPayload = `${userId}:${userProfile.username}:${timestamp}`;
+                const signature = crypto.createHmac('sha256', secret).update(sigPayload).digest('hex');
+                const authToken = Buffer.from(JSON.stringify({
+                    userId,
+                    username: userProfile.username,
+                    timestamp,
+                    sig: signature
+                })).toString('base64');
+
+                // Try redirecting back to portal (default to standard port 5500 or file/window closer)
+                return res.send(`
+                    <!DOCTYPE html>
+                    <html>
+                    <head><title>Authorization Successful</title></head>
+                    <body style="background:#0f172a;color:#f8fafc;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
+                        <div style="background:#1e293b;padding:2rem;border-radius:1rem;text-align:center;max-width:400px;border:1px solid #334155;">
+                            <h2 style="color:#10b981;margin-bottom:0.5rem;">Identity Verified! ✓</h2>
+                            <p style="color:#94a3b8;font-size:0.95rem;">You have authorized as <strong>@${userProfile.username}</strong>.</p>
+                            <p style="color:#64748b;font-size:0.85rem;">Returning you to Clan Portal...</p>
+                        </div>
+                        <script>
+                            const tokenData = {
+                                token: "${authToken}",
+                                userId: "${userId}",
+                                username: "${userProfile.username}",
+                                avatar: "${userProfile.avatar || ''}"
+                            };
+                            if (window.opener) {
+                                window.opener.postMessage({ type: 'STR_DISCORD_AUTH_SUCCESS', data: tokenData }, '*');
+                                window.close();
+                            } else {
+                                // Direct redirect fallback
+                                const redirectUrl = localStorage.getItem('str_portal_return_url') || 'http://localhost:5500';
+                                window.location.href = redirectUrl + '?auth_token=' + encodeURIComponent("${authToken}") + '&user_id=' + encodeURIComponent("${userId}");
+                            }
+                        </script>
+                    </body>
+                    </html>
+                `);
+            }
+
             return res.send(renderResponsePage({
                 success: true,
                 title: "Verification Successful! 🎉",
@@ -201,11 +248,32 @@ function initOAuthServer(client) {
     // API: Fetch Discord Profile & Calculate Legitimacy / Age
     // -------------------------------------------------------------
     app.get('/api/discord/user/:id', async (req, res) => {
-        const userId = req.params.id.trim();
+        let userId = req.params.id.trim();
 
-        // Validate Snowflake structure (numeric, 17-20 digits)
+        // If it is not a Snowflake, attempt to resolve via username
         if (!/^\d{17,20}$/.test(userId)) {
-            return res.status(400).json({ error: 'Invalid Discord User ID format. Discord IDs must be 17-20 digits.' });
+            let targetGuild = null;
+            if (client.config.clanManager?.guildId) {
+                targetGuild = client.guilds.cache.get(client.config.clanManager.guildId);
+            }
+            if (!targetGuild) targetGuild = client.guilds.cache.first();
+
+            if (targetGuild) {
+                const query = userId.toLowerCase();
+                const member = targetGuild.members.cache.find(m => 
+                    m.user.username.toLowerCase() === query || 
+                    m.user.globalName?.toLowerCase() === query || 
+                    m.user.tag.toLowerCase() === query
+                );
+                
+                if (member) {
+                    userId = member.id;
+                } else {
+                    return res.status(404).json({ error: 'User not found in the server by that username. Please enter your 17-20 digit Discord ID, or ensure you have joined the server.' });
+                }
+            } else {
+                return res.status(500).json({ error: 'Bot is not connected to a server to resolve usernames.' });
+            }
         }
 
         try {
@@ -271,6 +339,29 @@ function initOAuthServer(client) {
                 decorationUrl = `https://cdn.discordapp.com/avatar-decoration-presets/${avatarDecoration.asset}.png`;
             }
 
+            // Check if user is a member of the configured Clan Guild
+            let targetGuild = null;
+            let isGuildMember = false;
+            let guildName = null;
+            let guildIcon = null;
+
+            if (client.config.clanManager?.guildId) {
+                targetGuild = client.guilds.cache.get(client.config.clanManager.guildId) ||
+                    await client.guilds.fetch(client.config.clanManager.guildId).catch(() => null);
+            }
+            if (!targetGuild) {
+                targetGuild = client.guilds.cache.first();
+            }
+
+            if (targetGuild) {
+                guildName = targetGuild.name;
+                guildIcon = targetGuild.iconURL({ dynamic: true });
+                const member = await targetGuild.members.fetch(userId).catch(() => null);
+                if (member) {
+                    isGuildMember = true;
+                }
+            }
+
             return res.json({
                 id: userId,
                 username,
@@ -285,12 +376,49 @@ function initOAuthServer(client) {
                 accountAgeDays,
                 accountAgeMonths,
                 isEligible,
-                requiredDays: 90
+                requiredDays: 90,
+                isGuildMember,
+                guildName,
+                guildIcon
             });
         } catch (error) {
             console.error('[API USER FETCH ERROR]', error);
             return res.status(500).json({ error: 'Failed to verify Discord account.' });
         }
+    });
+
+    // In-memory rate limiting and application cooldowns to prevent abuse/nuking
+    const userApplyCooldowns = new Map(); // discordId -> timestamp
+    const ipApplyCooldowns = new Map();   // ip -> count of attempts in window
+
+    // Helper: Verify Signed Auth Token
+    function verifyAuthToken(token, expectedUserId) {
+        if (!token) return false;
+        try {
+            const crypto = require('crypto');
+            const secret = process.env.clientSecret || 'clan_secret_key';
+            const decoded = JSON.parse(Buffer.from(token, 'base64').toString('utf8'));
+            if (!decoded || !decoded.userId || !decoded.timestamp || !decoded.sig) return false;
+            if (decoded.userId !== expectedUserId) return false;
+            // Token valid for 2 hours (7200000 ms)
+            if (Date.now() - decoded.timestamp > 7200000) return false;
+
+            const sigPayload = `${decoded.userId}:${decoded.username}:${decoded.timestamp}`;
+            const expectedSig = crypto.createHmac('sha256', secret).update(sigPayload).digest('hex');
+            return crypto.timingSafeEqual(Buffer.from(decoded.sig), Buffer.from(expectedSig));
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // -------------------------------------------------------------
+    // API: Clan Auth URL generator
+    // -------------------------------------------------------------
+    app.get('/api/clan/auth-url', (req, res) => {
+        const clientId = process.env.clientId;
+        const redirect = redirectUri;
+        const authUrl = `https://discord.com/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirect)}&scope=identify&state=clan_portal`;
+        return res.json({ authUrl });
     });
 
     // -------------------------------------------------------------
@@ -307,12 +435,48 @@ function initOAuthServer(client) {
             clanMoniker,
             avatarUrl,
             accountAgeDays,
-            accountAgeMonths
+            accountAgeMonths,
+            authToken
         } = req.body;
 
         if (!discordId || !username) {
             return res.status(400).json({ error: 'Discord ID and Username are required.' });
         }
+
+        // Anti-Nuking / Anti-Abuse Authorization Check
+        // Requires user to have authorized through OAuth
+        const isAuthorized = verifyAuthToken(authToken, discordId);
+        if (!isAuthorized) {
+            return res.status(401).json({
+                error: 'Unauthorized: You must click "Authorize with Discord" to verify account ownership and prevent spam.'
+            });
+        }
+
+        // Rate Limiting: IP Level (Max 5 submissions per 15 minutes per IP)
+        const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+        const now = Date.now();
+        const ipRecord = ipApplyCooldowns.get(clientIp) || { count: 0, resetTime: now + 15 * 60 * 1000 };
+        if (now > ipRecord.resetTime) {
+            ipRecord.count = 0;
+            ipRecord.resetTime = now + 15 * 60 * 1000;
+        }
+        if (ipRecord.count >= 5) {
+            return res.status(429).json({
+                error: 'Too many applications from your IP address. Please wait 15 minutes before submitting again.'
+            });
+        }
+        ipRecord.count++;
+        ipApplyCooldowns.set(clientIp, ipRecord);
+
+        // Rate Limiting: User Level (Cooldown of 15 minutes per Discord account)
+        const lastApplied = userApplyCooldowns.get(discordId);
+        if (lastApplied && (now - lastApplied) < 15 * 60 * 1000) {
+            const minutesLeft = Math.ceil((15 * 60 * 1000 - (now - lastApplied)) / 60000);
+            return res.status(429).json({
+                error: `An application was recently submitted for your account. Please wait ${minutesLeft} minute(s) before applying again.`
+            });
+        }
+        userApplyCooldowns.set(discordId, now);
 
         // Validate 3-month age requirement on server side
         const epoch = 1420070400000n;
@@ -371,7 +535,21 @@ function initOAuthServer(client) {
                 });
             }
 
-            // Setup permission overwrites (Staff role or Admin can see; everyone denied)
+            // Check if applicant is a member of the target Discord server
+            let applicantMember = null;
+            try {
+                applicantMember = await targetGuild.members.fetch(discordId).catch(() => null);
+            } catch (e) {
+                applicantMember = null;
+            }
+
+            if (!applicantMember) {
+                return res.status(403).json({
+                    error: `You are not a member of the server (${targetGuild.name}). You must join the Discord server first before verifying!`
+                });
+            }
+
+            // Setup permission overwrites (Strictly applicant member + Staff/Admin can see, everyone else denied)
             const permissionOverwrites = [
                 {
                     id: targetGuild.roles.everyone.id,
@@ -386,6 +564,15 @@ function initOAuthServer(client) {
                         PermissionFlagsBits.AttachFiles,
                         PermissionFlagsBits.ManageChannels
                     ]
+                },
+                {
+                    id: discordId,
+                    allow: [
+                        PermissionFlagsBits.ViewChannel,
+                        PermissionFlagsBits.SendMessages,
+                        PermissionFlagsBits.ReadMessageHistory,
+                        PermissionFlagsBits.AttachFiles
+                    ]
                 }
             ];
 
@@ -393,20 +580,14 @@ function initOAuthServer(client) {
             if (client.config.clanManager?.staffRoleId) {
                 permissionOverwrites.push({
                     id: client.config.clanManager.staffRoleId,
-                    allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
+                    allow: [
+                        PermissionFlagsBits.ViewChannel,
+                        PermissionFlagsBits.SendMessages,
+                        PermissionFlagsBits.ReadMessageHistory,
+                        PermissionFlagsBits.ManageMessages
+                    ]
                 });
             }
-
-            // If applicant member is already in the server, allow them to view their channel
-            try {
-                const applicantMember = await targetGuild.members.fetch(discordId).catch(() => null);
-                if (applicantMember) {
-                    permissionOverwrites.push({
-                        id: discordId,
-                        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
-                    });
-                }
-            } catch (e) {}
 
             // Create Channel
             const channel = await targetGuild.channels.create({
