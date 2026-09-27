@@ -100,43 +100,46 @@ function initOAuthServer(client) {
                 targetGuildId = parts[0];
             }
 
-            // Save or update member in database
+            // Save or update member in database (Strict Single Record per Discord User ID)
+            const cleanUserId = String(userId).trim();
             const expiresAt = new Date(Date.now() + (expires_in || 604800) * 1000);
-            const existingMember = await OAuthMember.findOne({ userId });
 
-            let updatedGuilds = [];
-            if (existingMember) {
-                updatedGuilds = existingMember.guilds || [];
-                if (targetGuildId && !updatedGuilds.includes(targetGuildId)) {
-                    updatedGuilds.push(targetGuildId);
-                }
-                existingMember.username = userProfile.username;
-                existingMember.discriminator = userProfile.discriminator || '0';
-                existingMember.avatar = userProfile.avatar;
-                existingMember.accessToken = access_token;
-                existingMember.refreshToken = refresh_token;
-                existingMember.expiresAt = expiresAt;
-                existingMember.guilds = updatedGuilds;
-                existingMember.ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-                existingMember.updatedAt = new Date();
-                await existingMember.save();
-            } else {
-                if (targetGuildId) updatedGuilds.push(targetGuildId);
-                await OAuthMember.create({
-                    userId,
-                    username: userProfile.username,
-                    discriminator: userProfile.discriminator || '0',
-                    avatar: userProfile.avatar,
-                    accessToken: access_token,
-                    refreshToken: refresh_token,
-                    expiresAt,
-                    scope: scope || 'identify guilds.join',
-                    guilds: updatedGuilds,
-                    ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
-                    createdAt: new Date(),
-                    updatedAt: new Date()
-                });
+            // Clean up any potential duplicate documents for this userId first
+            const existingDocs = await OAuthMember.find({ userId: cleanUserId }).sort({ updatedAt: -1 });
+            if (existingDocs.length > 1) {
+                const idsToDelete = existingDocs.slice(1).map(d => d._id);
+                await OAuthMember.deleteMany({ _id: { $in: idsToDelete } });
             }
+
+            const updateFields = {
+                username: userProfile.username,
+                discriminator: userProfile.discriminator || '0',
+                avatar: userProfile.avatar,
+                accessToken: access_token,
+                refreshToken: refresh_token,
+                expiresAt: expiresAt,
+                scope: scope || 'identify guilds.join',
+                ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
+                updatedAt: new Date()
+            };
+
+            const mongoUpdate = {
+                $set: updateFields,
+                $setOnInsert: {
+                    userId: cleanUserId,
+                    createdAt: new Date()
+                }
+            };
+
+            if (targetGuildId) {
+                mongoUpdate.$addToSet = { guilds: String(targetGuildId).trim() };
+            }
+
+            await OAuthMember.findOneAndUpdate(
+                { userId: cleanUserId },
+                mongoUpdate,
+                { upsert: true, new: true, setDefaultsOnInsert: true }
+            );
 
             let roleAssigned = false;
             let guildName = 'the server';

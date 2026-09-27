@@ -51,16 +51,19 @@ module.exports = {
         const subcommand = interaction.options.getSubcommand();
 
         if (subcommand === 'stats') {
-            const totalMembers = await OAuthMember.countDocuments();
-            const guildMembers = await OAuthMember.countDocuments({ guilds: interaction.guild.id });
+            const uniqueTotal = await OAuthMember.distinct('userId');
+            const totalMembers = uniqueTotal.length;
+
+            const uniqueGuild = await OAuthMember.distinct('userId', { guilds: interaction.guild.id });
+            const guildMembers = uniqueGuild.length;
 
             const embed = new EmbedBuilder()
                 .setTitle('📊 Strikers Restorer Database Stats')
                 .setColor(client.config.embedColor || '#00f5d4')
                 .addFields(
-                    { name: 'Total Database Members', value: `\`${totalMembers}\` verified users`, inline: true },
-                    { name: 'Verified in this Server', value: `\`${guildMembers}\` users`, inline: true },
-                    { name: 'Current Server Members', value: `\`${interaction.guild.memberCount}\` users`, inline: true }
+                    { name: 'Unique Verified Accounts', value: `\`${totalMembers}\` members`, inline: true },
+                    { name: 'Verified in this Server', value: `\`${guildMembers}\` members`, inline: true },
+                    { name: 'Current Server Members', value: `\`${interaction.guild.memberCount}\` members`, inline: true }
                 )
                 .setFooter({ text: 'Strikers Member Restorer' })
                 .setTimestamp();
@@ -82,7 +85,17 @@ module.exports = {
             }
 
             const query = scope === 'this_guild' ? { guilds: targetGuildId } : {};
-            const candidates = await OAuthMember.find(query);
+            const rawCandidates = await OAuthMember.find(query).sort({ updatedAt: -1 });
+
+            // Strict deduplication by userId
+            const seen = new Set();
+            const candidates = [];
+            for (const doc of rawCandidates) {
+                if (!seen.has(doc.userId)) {
+                    seen.add(doc.userId);
+                    candidates.push(doc);
+                }
+            }
 
             if (!candidates.length) {
                 return await interaction.reply({

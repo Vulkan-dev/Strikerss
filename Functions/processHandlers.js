@@ -1,50 +1,30 @@
-module.exports = (db) => {
-
-    // Crtl + C
+module.exports = () => {
+    // Ctrl + C
     process.on('SIGINT', () => {
-        console.log();
-        error('SIGINT: Exiting...');
-        process.exit();
+        console.log('\n[PROCESS] Shutting down Strikers gracefully...');
+        process.exit(0);
     });
 
-    // Standard crash
+    // Uncaught exception
     process.on('uncaughtException', (err) => {
-        error(`UNCAUGHT EXCEPTION: ${err.stack}`);
+        console.error(`[ERROR] Uncaught Exception:`, err.message || err);
     });
 
     // Killed process
     process.on('SIGTERM', () => {
-        error('SIGTERM: Closing database and exiting...');
-        process.exit();
+        process.exit(0);
     });
 
-    // Standard crash
+    // Unhandled rejection
     process.on('unhandledRejection', (err) => {
-        error(`UNHANDLED REJECTION: ${err.stack}`);
+        // Filter out expected DNS or cancelled requests
+        if (err && err.message && err.message.includes('ECONNREFUSED')) return;
+        console.error(`[ERROR] Unhandled Rejection:`, err.message || err);
     });
 
-    // Deprecation warnings
+    // Filter out noisy deprecation warnings
     process.on('warning', (warning) => {
-        warn(warning);
+        if (warning.name === 'DeprecationWarning') return;
+        console.warn(`[WARN] ${warning.message || warning}`);
     });
-
-    // Reference errors
-    process.on('uncaughtReferenceError', (err) => {
-        error(err.stack);
-    });
-
 };
-
-const client = require('../index')
-
-client.logs = require('../Utils/logs')
-
-function error(message) {
-    client.logs.error(`[ERROR] ${message}`);
-}
-
-function warn(message) {
-    client.logs.warn(`[WARN] ${message}`);
-}
-
-client.logs.success(`[PROCESS] Process handlers loaded.`);

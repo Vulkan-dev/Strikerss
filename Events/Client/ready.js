@@ -44,14 +44,12 @@ module.exports = {
     name: 'ready',
     once: true,
     async execute(client) {
-        client.logs.logging(`[BOT] ${client.user.username} has been launched!`);
-        client.logs.info(`[EVENTS] Started loading events...`);
-        client.logs.success(`[EVENTS] Loaded ${client.eventNames().length} events.`);
+        client.logs.success(`[BOT] Logged in as ${client.user.tag}!`);
 
         // MongoDB connection
         const mongodbURL = process.env.mongodbURL;
         if (!mongodbURL) {
-            client.logs.error("[DATABASE] Cannot find MongodbURL in .env file.");
+            client.logs.error("[DATABASE] Missing mongodbURL in .env file.");
             return process.exit(1);
         }
 
@@ -64,30 +62,11 @@ module.exports = {
             
             await mongoose.connect(mongodbURL);
             client.logs.success('[DATABASE] Connected to MongoDB successfully.');
-
-            // Safely load schema files
-            try {
-                const schemasPath = path.resolve(BASE_DIR, '../../Schemas');
-                const files = fs.readdirSync(schemasPath);
-                client.logs.success(`[SCHEMAS] Loaded ${files.length} schema files.`);
-            } catch (err) {
-                client.logs.error(`[ERROR] Error reading schemas folder: ${err.message}`);
-            }
         } catch (error) {
             client.logs.error(`[DATABASE] Failed to connect to MongoDB: ${error.message}`);
             setTimeout(() => {
                 process.exit(1);
             }, 5000);
-        }
-
-        // Safely load triggers
-        try {
-            const triggersPath = path.resolve(BASE_DIR, '../../Triggers');
-            const files = fs.readdirSync(triggersPath);
-            client.logs.info(`[TRIGGERS] Started loading triggers...`);
-            client.logs.success(`[TRIGGERS] Loaded ${files.length} trigger files.`);
-        } catch (err) {
-            client.logs.error(`Error reading trigger folder: ${err.message}`);
         }
 
         require('events').EventEmitter.defaultMaxListeners = config.eventListeners;

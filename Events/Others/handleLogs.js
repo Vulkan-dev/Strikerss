@@ -29,7 +29,7 @@ function handleLogs(client) {
     try {
       await logChannel.send({ embeds: [embed] });
     } catch (err) {
-      console.log(`Error sending ${logType} log:`, err);
+      // log channel error ignored
     }
   }
 
@@ -37,7 +37,7 @@ function handleLogs(client) {
   client.on("messageDelete", function (message) {
     try {
       if (message.guild === null || !message.author) {
-        console.log("Skipping message delete log: Message is partial or lacks author");
+        // skipped partial message
         return;
       }
       if (message.author.bot) return; // Skip bot messages
@@ -54,7 +54,7 @@ function handleLogs(client) {
   
       return send_log(message.guild.id, embed, "message");
     } catch (err) {
-      console.log("Error logging message delete:", err);
+      // ignored event log error
     }
   });
 
@@ -74,7 +74,7 @@ function handleLogs(client) {
 
       return send_log(message.guild.id, embed, "message");
     } catch (err) {
-      console.log("Error logging message edit:", err);
+      // ignored event log error
     }
   });
 
@@ -93,7 +93,7 @@ function handleLogs(client) {
 
       return send_log(message.guild.id, embed, "message");
     } catch (err) {
-      console.log("Error logging pin add:", err);
+      // ignored event log error
     }
   });
 
@@ -114,7 +114,7 @@ function handleLogs(client) {
 
       return send_log(channel.guild.id, embed, "channel");
     } catch (err) {
-      console.log("Error logging topic update:", err);
+      // ignored event log error
     }
   });
 
@@ -133,7 +133,7 @@ function handleLogs(client) {
 
       return send_log(channel.guild.id, embed, "channel");
     } catch (err) {
-      console.log("Error logging channel permissions update:", err);
+      // ignored event log error
     }
   });
 
@@ -152,7 +152,7 @@ function handleLogs(client) {
 
       return send_log(oldChannel.guild.id, embed, "channel");
     } catch (err) {
-      console.log("Error logging unhandled channel update:", err);
+      // ignored event log error
     }
   });
 
@@ -170,7 +170,7 @@ function handleLogs(client) {
 
       return send_log(channel.guild.id, embed, "channel");
     } catch (err) {
-      console.log("Error logging channel create:", err);
+      // ignored event log error
     }
   });
 
@@ -188,7 +188,7 @@ function handleLogs(client) {
 
       return send_log(channel.guild.id, embed, "channel");
     } catch (err) {
-      console.log("Error logging channel delete:", err);
+      // ignored event log error
     }
   });
 
@@ -207,7 +207,7 @@ function handleLogs(client) {
 
       return send_log(thread.guild.id, embed, "channel");
     } catch (err) {
-      console.log("Error logging thread create:", err);
+      // ignored event log error
     }
   });
 
@@ -226,7 +226,7 @@ function handleLogs(client) {
 
       return send_log(thread.guild.id, embed, "channel");
     } catch (err) {
-      console.log("Error logging thread delete:", err);
+      // ignored event log error
     }
   });
 
@@ -246,7 +246,7 @@ function handleLogs(client) {
 
       return send_log(newThread.guild.id, embed, "channel");
     } catch (err) {
-      console.log("Error logging thread update:", err);
+      // ignored event log error
     }
   });
 
@@ -266,7 +266,7 @@ function handleLogs(client) {
 
       return send_log(member.guild.id, embed, "guild");
     } catch (err) {
-      console.log("Error logging member boost start:", err);
+      // ignored event log error
     }
   });
 
@@ -285,7 +285,7 @@ function handleLogs(client) {
 
       return send_log(member.guild.id, embed, "guild");
     } catch (err) {
-      console.log("Error logging member boost stop:", err);
+      // ignored event log error
     }
   });
 
@@ -306,7 +306,7 @@ function handleLogs(client) {
 
       return send_log(guild.id, embed, "guild");
     } catch (err) {
-      console.log("Error logging boost level up:", err);
+      // ignored event log error
     }
   });
 
@@ -327,7 +327,7 @@ function handleLogs(client) {
 
       return send_log(guild.id, embed, "guild");
     } catch (err) {
-      console.log("Error logging boost level down:", err);
+      // ignored event log error
     }
   });
 
@@ -346,7 +346,7 @@ function handleLogs(client) {
 
       return send_log(guild.id, embed, "guild");
     } catch (err) {
-      console.log("Error logging banner change:", err);
+      // ignored event log error
     }
   });
 
@@ -364,7 +364,7 @@ function handleLogs(client) {
 
       return send_log(guild.id, embed, "guild");
     } catch (err) {
-      console.log("Error logging afk channel add:", err);
+      // ignored event log error
     }
   });
 
@@ -382,7 +382,7 @@ function handleLogs(client) {
 
       return send_log(guild.id, embed, "guild");
     } catch (err) {
-      console.log("Error logging vanity add:", err);
+      // ignored event log error
     }
   });
 
@@ -400,7 +400,7 @@ function handleLogs(client) {
 
       return send_log(guild.id, embed, "guild");
     } catch (err) {
-      console.log("Error logging vanity remove:", err);
+      // ignored event log error
     }
   });
 
@@ -419,7 +419,7 @@ function handleLogs(client) {
 
       return send_log(guild.id, embed, "guild");
     } catch (err) {
-      console.log("Error logging vanity update:", err);
+      // ignored event log error
     }
   });
 
@@ -449,7 +449,7 @@ function handleLogs(client) {
 
       return send_log(newGuild.id, embed, "guild");
     } catch (err) {
-      console.log("Error logging guild update:", err);
+      // ignored event log error
     }
   });
 
@@ -468,7 +468,7 @@ function handleLogs(client) {
 
       return send_log(emoji.guild.id, embed, "guild");
     } catch (err) {
-      console.log("Error logging emoji create:", err);
+      // ignored event log error
     }
   });
 
@@ -486,7 +486,7 @@ function handleLogs(client) {
 
       return send_log(emoji.guild.id, embed, "guild");
     } catch (err) {
-      console.log("Error logging emoji delete:", err);
+      // ignored event log error
     }
   });
 
@@ -506,7 +506,7 @@ function handleLogs(client) {
 
       return send_log(newEmoji.guild.id, embed, "guild");
     } catch (err) {
-      console.log("Error logging emoji update:", err);
+      // ignored event log error
     }
   });
 
@@ -524,7 +524,7 @@ function handleLogs(client) {
 
       return send_log(sticker.guild.id, embed, "guild");
     } catch (err) {
-      console.log("Error logging sticker create:", err);
+      // ignored event log error
     }
   });
 
@@ -542,7 +542,7 @@ function handleLogs(client) {
 
       return send_log(sticker.guild.id, embed, "guild");
     } catch (err) {
-      console.log("Error logging sticker delete:", err);
+      // ignored event log error
     }
   });
 
@@ -561,7 +561,7 @@ function handleLogs(client) {
 
       return send_log(newSticker.guild.id, embed, "guild");
     } catch (err) {
-      console.log("Error logging sticker update:", err);
+      // ignored event log error
     }
   });
 
@@ -579,7 +579,7 @@ function handleLogs(client) {
 
       return send_log(integration.guild.id, embed, "guild");
     } catch (err) {
-      console.log("Error logging integration create:", err);
+      // ignored event log error
     }
   });
 
@@ -597,7 +597,7 @@ function handleLogs(client) {
 
       return send_log(integration.guild.id, embed, "guild");
     } catch (err) {
-      console.log("Error logging integration delete:", err);
+      // ignored event log error
     }
   });
 
@@ -616,7 +616,7 @@ function handleLogs(client) {
 
       return send_log(integration.guild.id, embed, "guild");
     } catch (err) {
-      console.log("Error logging integration update:", err);
+      // ignored event log error
     }
   });
 
@@ -635,7 +635,7 @@ function handleLogs(client) {
 
       return send_log(channel.guild.id, embed, "guild");
     } catch (err) {
-      console.log("Error logging webhook update:", err);
+      // ignored event log error
     }
   });
 
@@ -654,7 +654,7 @@ function handleLogs(client) {
 
       return send_log(invite.guild.id, embed, "guild");
     } catch (err) {
-      console.log("Error logging invite create:", err);
+      // ignored event log error
     }
   });
 
@@ -672,7 +672,7 @@ function handleLogs(client) {
 
       return send_log(invite.guild.id, embed, "guild");
     } catch (err) {
-      console.log("Error logging invite delete:", err);
+      // ignored event log error
     }
   });
 
@@ -692,7 +692,7 @@ function handleLogs(client) {
 
       return send_log(member.guild.id, embed, "member");
     } catch (err) {
-      console.log("Error logging role give:", err);
+      // ignored event log error
     }
   });
 
@@ -711,7 +711,7 @@ function handleLogs(client) {
 
       return send_log(member.guild.id, embed, "member");
     } catch (err) {
-      console.log("Error logging role remove:", err);
+      // ignored event log error
     }
   });
 
@@ -731,7 +731,7 @@ function handleLogs(client) {
 
       return send_log(role.guild.id, embed, "role");
     } catch (err) {
-      console.log("Error logging role position update:", err);
+      // ignored event log error
     }
   });
 
@@ -750,7 +750,7 @@ function handleLogs(client) {
 
       return send_log(role.guild.id, embed, "role");
     } catch (err) {
-      console.log("Error logging role permissions update:", err);
+      // ignored event log error
     }
   });
 
@@ -771,7 +771,7 @@ function handleLogs(client) {
 
       return send_log(role.guild.id, embed, "role");
     } catch (err) {
-      console.log("Error logging role create:", err);
+      // ignored event log error
     }
   });
 
@@ -789,7 +789,7 @@ function handleLogs(client) {
 
       return send_log(role.guild.id, embed, "role");
     } catch (err) {
-      console.log("Error logging role delete:", err);
+      // ignored event log error
     }
   });
 
@@ -821,7 +821,7 @@ function handleLogs(client) {
 
       return send_log(newRole.guild.id, embed, "role");
     } catch (err) {
-      console.log("Error logging role update:", err);
+      // ignored event log error
     }
   });
 
@@ -842,7 +842,7 @@ function handleLogs(client) {
 
       return send_log(member.guild.id, embed, "voice");
     } catch (err) {
-      console.log("Error logging voice channel switch:", err);
+      // ignored event log error
     }
   });
 
@@ -861,7 +861,7 @@ function handleLogs(client) {
 
       return send_log(member.guild.id, embed, "member");
     } catch (err) {
-      console.log("Error logging nickname update:", err);
+      // ignored event log error
     }
   });
 
@@ -881,7 +881,7 @@ function handleLogs(client) {
 
       return send_log(member.guild.id, embed, "member");
     } catch (err) {
-      console.log("Error logging member add:", err);
+      // ignored event log error
     }
   });
 
@@ -901,7 +901,7 @@ function handleLogs(client) {
 
       return send_log(member.guild.id, embed, "member");
     } catch (err) {
-      console.log("Error logging member leave:", err);
+      // ignored event log error
     }
   });
 
@@ -940,7 +940,7 @@ function handleLogs(client) {
 
       return send_log(newMember.guild.id, embed, "member");
     } catch (err) {
-      console.log("Error logging member update:", err);
+      // ignored event log error
     }
   });
 
@@ -960,7 +960,7 @@ function handleLogs(client) {
 
       return send_log(guild.id, embed, "member");
     } catch (err) {
-      console.log("Error logging ban add:", err);
+      // ignored event log error
     }
   });
 
@@ -978,7 +978,7 @@ function handleLogs(client) {
 
       return send_log(guild.id, embed, "member");
     } catch (err) {
-      console.log("Error logging ban remove:", err);
+      // ignored event log error
     }
   });
 }

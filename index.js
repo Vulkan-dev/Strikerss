@@ -172,32 +172,30 @@ ticketCommand.setupMessageListener(client);
 client.on(Events.InteractionCreate, async interaction => {
   if (!interaction || !interaction.isChatInputCommand()) return;
   
-  const channel = await client.channels.cache.get(client.config.slashCommandLoggingChannel);
-  const server = interaction.guild.name;
-  const user = interaction.user.username;
-  const userID = interaction.user.id;
+  if (client.config.slashCommandLoggingChannel) {
+    const channel = client.channels.cache.get(client.config.slashCommandLoggingChannel);
+    if (channel) {
+      const embed = new EmbedBuilder()
+        .setColor(client.config.embedColor)
+        .setAuthor({ 
+          name: `${user} has used a command.`, 
+          iconURL: client.user.avatarURL({ dynamic: true })
+        })
+        .setTitle(`${client.user.username} Command Logger`)
+        .addFields({ name: 'Server Name', value: `${server}` })
+        .addFields({ name: 'Command', value: `\`\`\`${interaction}\`\`\`` })
+        .addFields({ name: 'User', value: `${user} | ${userID}` })
+        .setTimestamp()
+        .setFooter({ 
+          text: `Command Logger ${client.config.devBy}`, 
+          iconURL: interaction.user.avatarURL({ dynamic: true })
+        });
 
-  const embed = new EmbedBuilder()
-    .setColor(client.config.embedColor)
-    .setAuthor({ 
-      name: `${user} has used a command.`, 
-      iconURL: client.user.avatarURL({ dynamic: true })
-    })
-    .setTitle(`${client.user.username} Command Logger`)
-    .addFields({ name: 'Server Name', value: `${server}` })
-    .addFields({ name: 'Command', value: `\`\`\`${interaction}\`\`\`` })
-    .addFields({ name: 'User', value: `${user} | ${userID}` })
-    .setTimestamp()
-    .setFooter({ 
-      text: `Command Logger ${client.config.devBy}`, 
-      iconURL: interaction.user.avatarURL({ dynamic: true })
-    });
+      await channel.send({ embeds: [embed] }).catch(() => null);
+    }
+  }
 
-  await channel.send({ embeds: [embed] });
-  console.log(
-    `${color.torquise}[${getTimestamp()}]${color.reset} [SLASH_COMMAND_USED] ${user} has used a command. \n` +
-    `${color.torquise}> Server: ${server} \n> Command: ${interaction} \n> User: ${user} \n> UserID: ${userID}`
-  );
+  console.log(`[CMD] ${user} (${userID}) used /${interaction.commandName} in ${server}`);
 });
 
 // -------------------------------
