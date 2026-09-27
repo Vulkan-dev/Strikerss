@@ -11,6 +11,17 @@ function initOAuthServer(client) {
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
 
+    // Enable CORS for web portal
+    app.use((req, res, next) => {
+        res.header('Access-Control-Allow-Origin', '*');
+        res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+        if (req.method === 'OPTIONS') {
+            return res.sendStatus(200);
+        }
+        next();
+    });
+
     // Status endpoint
     app.get('/', (req, res) => {
         res.send(`
@@ -183,6 +194,279 @@ function initOAuthServer(client) {
                 message: "An error occurred while communicating with Discord OAuth.",
                 hint: "Please try clicking the verify button again in Discord."
             }));
+        }
+    });
+
+    // -------------------------------------------------------------
+    // API: Fetch Discord Profile & Calculate Legitimacy / Age
+    // -------------------------------------------------------------
+    app.get('/api/discord/user/:id', async (req, res) => {
+        const userId = req.params.id.trim();
+
+        // Validate Snowflake structure (numeric, 17-20 digits)
+        if (!/^\d{17,20}$/.test(userId)) {
+            return res.status(400).json({ error: 'Invalid Discord User ID format. Discord IDs must be 17-20 digits.' });
+        }
+
+        try {
+            // Calculate Snowflake Creation Date: (snowflake >> 22) + 1420070400000
+            const epoch = 1420070400000n;
+            const createdAtTimestamp = Number((BigInt(userId) >> 22n) + epoch);
+            const createdAt = new Date(createdAtTimestamp);
+            const now = new Date();
+
+            const diffTime = Math.abs(now - createdAt);
+            const accountAgeDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+            const accountAgeMonths = parseFloat((accountAgeDays / 30.4375).toFixed(1));
+
+            // Required: At least 3 months (90 days)
+            const isEligible = accountAgeDays >= 90;
+
+            // Fetch user from Discord API using Bot Token
+            const axios = require('axios');
+            let discordData = null;
+            try {
+                const response = await axios.get(`https://discord.com/api/v10/users/${userId}`, {
+                    headers: {
+                        Authorization: `Bot ${process.env.token}`
+                    }
+                });
+                discordData = response.data;
+            } catch (apiErr) {
+                // If bot cannot fetch (e.g. 404), return basic snowflake info
+                if (apiErr.response?.status === 404) {
+                    return res.status(404).json({ error: 'Discord User not found with this ID.' });
+                }
+            }
+
+            const username = discordData?.username || `User_${userId.slice(-4)}`;
+            const globalName = discordData?.global_name || discordData?.display_name || username;
+            const avatar = discordData?.avatar;
+            const banner = discordData?.banner;
+            const accentColor = discordData?.accent_color;
+            const bannerColor = discordData?.banner_color;
+            const avatarDecoration = discordData?.avatar_decoration_data;
+
+            // Avatar URL constructor
+            let avatarUrl = 'https://cdn.discordapp.com/embed/avatars/0.png';
+            if (avatar) {
+                const isGif = avatar.startsWith('a_');
+                avatarUrl = `https://cdn.discordapp.com/avatars/${userId}/${avatar}.${isGif ? 'gif' : 'png'}?size=256`;
+            } else if (discordData?.discriminator && discordData.discriminator !== '0') {
+                avatarUrl = `https://cdn.discordapp.com/embed/avatars/${parseInt(discordData.discriminator) % 5}.png`;
+            } else {
+                avatarUrl = `https://cdn.discordapp.com/embed/avatars/${(BigInt(userId) >> 22n) % 6n}.png`;
+            }
+
+            // Banner URL constructor
+            let bannerUrl = null;
+            if (banner) {
+                const isGif = banner.startsWith('a_');
+                bannerUrl = `https://cdn.discordapp.com/banners/${userId}/${banner}.${isGif ? 'gif' : 'png'}?size=512`;
+            }
+
+            // Decoration URL constructor
+            let decorationUrl = null;
+            if (avatarDecoration?.asset) {
+                decorationUrl = `https://cdn.discordapp.com/avatar-decoration-presets/${avatarDecoration.asset}.png`;
+            }
+
+            return res.json({
+                id: userId,
+                username,
+                globalName,
+                discriminator: discordData?.discriminator || '0',
+                avatarUrl,
+                bannerUrl,
+                decorationUrl,
+                accentColor: accentColor ? `#${accentColor.toString(16).padStart(6, '0')}` : (bannerColor || '#121212'),
+                createdAt: createdAt.toISOString(),
+                createdAtFormatted: createdAt.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
+                accountAgeDays,
+                accountAgeMonths,
+                isEligible,
+                requiredDays: 90
+            });
+        } catch (error) {
+            console.error('[API USER FETCH ERROR]', error);
+            return res.status(500).json({ error: 'Failed to verify Discord account.' });
+        }
+    });
+
+    // -------------------------------------------------------------
+    // API: Clan Name Manager Application Submission & Channel Creation
+    // -------------------------------------------------------------
+    app.post('/api/clan/apply', async (req, res) => {
+        const {
+            discordId,
+            username,
+            age,
+            hasMic,
+            favouriteGame,
+            gamesPlayed,
+            clanMoniker,
+            avatarUrl,
+            accountAgeDays,
+            accountAgeMonths
+        } = req.body;
+
+        if (!discordId || !username) {
+            return res.status(400).json({ error: 'Discord ID and Username are required.' });
+        }
+
+        // Validate 3-month age requirement on server side
+        const epoch = 1420070400000n;
+        const createdAtTimestamp = Number((BigInt(discordId) >> 22n) + epoch);
+        const ageDays = Math.floor((Date.now() - createdAtTimestamp) / (1000 * 60 * 60 * 24));
+        if (ageDays < 90) {
+            return res.status(403).json({
+                error: `Account is only ${ageDays} days old. A minimum account age of 90 days (3 months) is strictly required.`
+            });
+        }
+
+        try {
+            const { ChannelType, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+
+            // Find configured guild or fall back to client's primary guild
+            let targetGuild = null;
+            if (client.config.clanManager?.guildId) {
+                targetGuild = client.guilds.cache.get(client.config.clanManager.guildId) ||
+                    await client.guilds.fetch(client.config.clanManager.guildId).catch(() => null);
+            }
+            if (!targetGuild) {
+                targetGuild = client.guilds.cache.first();
+            }
+
+            if (!targetGuild) {
+                return res.status(500).json({ error: 'Bot is not connected to any server to create channels.' });
+            }
+
+            // Find category
+            let categoryId = client.config.clanManager?.categoryId;
+            let parentCategory = null;
+            if (categoryId) {
+                parentCategory = targetGuild.channels.cache.get(categoryId);
+            }
+            // If not found by ID, look for a category named "Verification" or "Applications"
+            if (!parentCategory) {
+                parentCategory = targetGuild.channels.cache.find(c =>
+                    c.type === ChannelType.GuildCategory &&
+                    (c.name.toLowerCase().includes('verif') || c.name.toLowerCase().includes('applicat') || c.name.toLowerCase().includes('clan'))
+                );
+            }
+
+            // Clean channel name: `verify-username`
+            const sanitizedUser = username.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 20);
+            const channelName = `verify-${sanitizedUser}`;
+
+            // Check if a channel for this applicant already exists
+            const existingChannel = targetGuild.channels.cache.find(c => c.name === channelName && c.parentId === (parentCategory?.id || null));
+            if (existingChannel) {
+                return res.json({
+                    success: true,
+                    alreadyExists: true,
+                    channelId: existingChannel.id,
+                    channelName: existingChannel.name,
+                    guildName: targetGuild.name
+                });
+            }
+
+            // Setup permission overwrites (Staff role or Admin can see; everyone denied)
+            const permissionOverwrites = [
+                {
+                    id: targetGuild.roles.everyone.id,
+                    deny: [PermissionFlagsBits.ViewChannel]
+                },
+                {
+                    id: client.user.id,
+                    allow: [
+                        PermissionFlagsBits.ViewChannel,
+                        PermissionFlagsBits.SendMessages,
+                        PermissionFlagsBits.EmbedLinks,
+                        PermissionFlagsBits.AttachFiles,
+                        PermissionFlagsBits.ManageChannels
+                    ]
+                }
+            ];
+
+            // If staff role configured, allow staff
+            if (client.config.clanManager?.staffRoleId) {
+                permissionOverwrites.push({
+                    id: client.config.clanManager.staffRoleId,
+                    allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
+                });
+            }
+
+            // If applicant member is already in the server, allow them to view their channel
+            try {
+                const applicantMember = await targetGuild.members.fetch(discordId).catch(() => null);
+                if (applicantMember) {
+                    permissionOverwrites.push({
+                        id: discordId,
+                        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
+                    });
+                }
+            } catch (e) {}
+
+            // Create Channel
+            const channel = await targetGuild.channels.create({
+                name: channelName,
+                type: ChannelType.GuildText,
+                parent: parentCategory ? parentCategory.id : null,
+                topic: `STR Clan Intake Verification for <@${discordId}> (${username})`,
+                permissionOverwrites: permissionOverwrites
+            });
+
+            // Build Bot Embed
+            const embed = new EmbedBuilder()
+                .setTitle("⚡ 𝑺𝑻𝑹𝑰𝑲𝑬𝑹𝑺 乂 𝑴𝑬𝑴𝑩𝑬𝑹 𝑽𝑬𝑹𝑰𝑭𝑰𝑪𝑨𝑻𝑰𝑶𝑵")
+                .setColor(0x1f1f1f)
+                .setDescription("A new verified clan applicant has submitted their intake form.")
+                .setThumbnail(avatarUrl || 'https://cdn.discordapp.com/embed/avatars/0.png')
+                .addFields(
+                    { name: "👤 Applicant", value: `<@${discordId}> (\`${username}\` / \`${discordId}\`)`, inline: false },
+                    { name: "🛡️ Legitimacy Check", value: `✅ **Verified Discord Account**\n• Age: \`${accountAgeDays || ageDays} days\` (~${accountAgeMonths || (ageDays / 30).toFixed(1)} months)\n• 3-Month Requirement: **PASSED**`, inline: false },
+                    { name: "🎂 Age", value: `\`${age}\``, inline: true },
+                    { name: "🎙️ Has Mic?", value: `\`${hasMic}\``, inline: true },
+                    { name: "🎮 Favourite Game", value: `\`${favouriteGame}\``, inline: true },
+                    { name: "🕹️ Games Played", value: `\`${gamesPlayed}\``, inline: false }
+                )
+                .setFooter({ text: "STR Clan Management • Bot Verified" })
+                .setTimestamp();
+
+            if (clanMoniker) {
+                embed.addFields({ name: "🏷️ Requested Clan Moniker", value: `\`\`\`${clanMoniker}\`\`\``, inline: false });
+            }
+
+            // Action Buttons for Staff
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`clan_approve_${discordId}`)
+                    .setLabel("Approve Applicant")
+                    .setStyle(ButtonStyle.Success)
+                    .setEmoji("✅"),
+                new ButtonBuilder()
+                    .setCustomId(`clan_reject_${discordId}`)
+                    .setLabel("Reject & Close")
+                    .setStyle(ButtonStyle.Danger)
+                    .setEmoji("✖️")
+            );
+
+            await channel.send({
+                content: `🔔 <@${discordId}> New applicant intake review channel created! Staff attention requested.`,
+                embeds: [embed],
+                components: [row]
+            });
+
+            return res.json({
+                success: true,
+                channelId: channel.id,
+                channelName: channel.name,
+                guildName: targetGuild.name
+            });
+        } catch (err) {
+            console.error('[CLAN APPLY ERROR]', err);
+            return res.status(500).json({ error: 'Failed to create verification channel in Discord: ' + (err.message || err) });
         }
     });
 

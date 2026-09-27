@@ -27,4 +27,11 @@ module.exports = {
     cronSchedule: "0 0 * * *", // Every 24 hours at midnight
     retentionDays: 3           // Rolling 3 days retention
   },
+
+  // Clan Name Manager & Verification Category
+  clanManager: {
+    guildId: process.env.CLAN_GUILD_ID || "",
+    categoryId: process.env.CLAN_CATEGORY_ID || "",
+    staffRoleId: process.env.CLAN_STAFF_ROLE_ID || ""
+  }
 };
