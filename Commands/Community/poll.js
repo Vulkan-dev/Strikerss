@@ -225,5 +225,4 @@ async function fetchVoters(interaction, client, messageId, guildId) {
 
 /**
  * Credits: Arpan | @arpandevv
- * Buy: https://razorbot.buzz/buy
  */

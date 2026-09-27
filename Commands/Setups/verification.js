@@ -631,18 +631,21 @@ module.exports = {
     });
 
     collector.on("end", async () => {
-      mainButtons.components.forEach((component) => component.setDisabled(true));
-      extraButtons.components.forEach((component) => component.setDisabled(true));
-      await message.edit({
-        content: "The verification configuration panel has timed out.",
-        embeds: [embed],
-        components: [mainButtons, extraButtons],
-      });
+      try {
+        mainButtons.components.forEach((component) => component.setDisabled(true));
+        extraButtons.components.forEach((component) => component.setDisabled(true));
+        await interaction.editReply({
+          content: "The verification configuration panel has timed out.",
+          embeds: [embed],
+          components: [mainButtons, extraButtons],
+        }).catch(() => null);
+      } catch (err) {
+        // Ignore timeout edit errors if message was deleted
+      }
     });
   },
 };
 
 /**
  * Credits: Arpan | @arpandevv
- * Buy: https://razorbot.buzz/buy
  */

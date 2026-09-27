@@ -12,8 +12,6 @@ const {
   const math = require("mathjs");
   const { generatePassword } = require("generate-passwords");
   const translate = require("@iamtraction/google-translate");
-  const BitlyClient = require("bitly").BitlyClient;
-  const bitly = new BitlyClient("5a760c5f5dbd6b2e66e61e69976c221fd55ead2f");
   const Docs = require("discord.js-docs");
   const { ButtonPaginationBuilder } = require("@thenorthsolution/djs-pagination");
   const { formatNumber, limitString } = require("fallout-utility");
@@ -222,7 +220,7 @@ const {
       .addSubcommand((command) =>
         command
           .setName(`shorten`)
-          .setDescription("Shorten a URL using Bitly")
+          .setDescription("Shorten a URL")
           .addStringOption((option) =>
             option
               .setName("link")
@@ -611,14 +609,15 @@ const {
             });
           }
           
-          const result = await bitly.shorten(link);
+          const response = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(link)}`);
+          const shortened = response.data;
           
           return interaction.reply({
             embeds: [
               embed
-                .setTitle(`${interaction.user.username} - Bitly Link Shortener`)
-                .setDescription(`Original: ${link}\nShortened: ${result.link}`)
-                .setColor("Orange")
+                .setTitle(`🔗 URL Shortener`)
+                .setDescription(`**Original:** ${link}\n**Shortened:** ${shortened}`)
+                .setColor(client.config.embedColor || "Orange")
                 .setTimestamp(),
             ],
           });
@@ -629,7 +628,7 @@ const {
                 .setColor("Red")
                 .setTitle("An error occurred")
                 .setDescription(
-                  "Try adding `https://` and `www.` before the link. If the issue persists, please contact the developer."
+                  "Could not shorten the provided URL. Please make sure the URL is accessible."
                 ),
             ],
             flags: MessageFlags.Ephemeral
@@ -719,13 +718,9 @@ const {
               iconURL: interaction.member.user.displayAvatarURL(),
             });
           
-          await interaction.channel.send({ embeds: [response] });
-          await interaction.reply({
-            content: "Successfully translated message!",
-            ephemeral: false,
-          });
+          return await interaction.reply({ embeds: [response] });
         } catch (error) {
-          await interaction.reply({
+          return await interaction.reply({
             content: "An error occurred while translating. Please try again later.",
             flags: MessageFlags.Ephemeral
           });

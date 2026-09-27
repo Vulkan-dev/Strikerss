@@ -59,5 +59,4 @@ module.exports = (client) => {
 
 /**
  * Credits: Arpan | @arpandevv
- * Buy: https://razorbot.buzz/buy
  */

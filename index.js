@@ -171,10 +171,15 @@ ticketCommand.setupMessageListener(client);
 // -------------------------------
 client.on(Events.InteractionCreate, async interaction => {
   if (!interaction || !interaction.isChatInputCommand()) return;
-  
+
+  const user = interaction.user.tag;
+  const userID = interaction.user.id;
+  const server = interaction.guild ? interaction.guild.name : 'Direct Messages';
+
   if (client.config.slashCommandLoggingChannel) {
-    const channel = client.channels.cache.get(client.config.slashCommandLoggingChannel);
-    if (channel) {
+    const channel = client.channels.cache.get(client.config.slashCommandLoggingChannel) ||
+      await client.channels.fetch(client.config.slashCommandLoggingChannel).catch(() => null);
+    if (channel && channel.isTextBased()) {
       const embed = new EmbedBuilder()
         .setColor(client.config.embedColor)
         .setAuthor({ 
@@ -183,7 +188,7 @@ client.on(Events.InteractionCreate, async interaction => {
         })
         .setTitle(`${client.user.username} Command Logger`)
         .addFields({ name: 'Server Name', value: `${server}` })
-        .addFields({ name: 'Command', value: `\`\`\`${interaction}\`\`\`` })
+        .addFields({ name: 'Command', value: `\`\`\`/${interaction.commandName}\`\`\`` })
         .addFields({ name: 'User', value: `${user} | ${userID}` })
         .setTimestamp()
         .setFooter({ 

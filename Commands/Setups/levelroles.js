@@ -194,5 +194,4 @@ module.exports = {
 
 /**
  * Credits: Arpan | @arpandevv
- * Buy: https://razorbot.buzz/buy
  */

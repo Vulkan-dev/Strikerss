@@ -31,7 +31,8 @@ module.exports = {
       !interaction.member.permissions.has(
         PermissionsBitField.Flags.Administrator
       ) &&
-      interaction.user.id !== "619944734776885276"
+      interaction.user.id !== process.env.developerId &&
+      interaction.user.id !== interaction.guild.ownerId
     )
       return await interaction.reply({
         content: "You **do not** have the permission to do that!",
@@ -97,5 +98,4 @@ module.exports = {
 
 /**
  * Credits: Arpan | @arpandevv
- * Buy: https://razorbot.buzz/buy
  */

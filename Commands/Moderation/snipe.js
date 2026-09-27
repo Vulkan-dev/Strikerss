@@ -54,5 +54,4 @@ module.exports.onMessageDelete = (message) => {
 
 /**
  * Credits: Arpan | @arpandevv
- * Buy: https://razorbot.buzz/buy
  */

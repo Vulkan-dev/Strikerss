@@ -180,7 +180,7 @@ module.exports = (client) => {
 
                 await capschema.updateOne(
                     { Guild: interaction.guild.id },
-                    { $push: { Verified: interaction.user.id } }
+                    { $addToSet: { Verified: interaction.user.id } }
                 );
 
                 const channelLog = interaction.guild.channels.cache.get(client.config.logchannel);
@@ -257,5 +257,4 @@ module.exports = (client) => {
 
 /**
  * Credits: Arpan | @arpandevv
- * Buy: https://razorbot.buzz/buy
  */
