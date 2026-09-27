@@ -1,0 +1,37 @@
+Razor Bot - Changelog
+=====================
+
+Version: v2.0.1
+Release Date: [13-07-2028]
+
+Changes from v2.0.0 Beta:
+-------------------------
+
+✨ New Features:
+- [Added] Added emoji.json file for all custom emojis except some!.
+- [Added] Added Autoplay command in music system.
+
+🛠️ Improvements:
+- [Improved] Added Pagination and mentioned Commands on `/help` command (help.js)
+- [Improved] Error responses with more user-friendly messages.
+- [Improved] Updated all files which contains custom to import emojis from (emoji.json).
+- [Improved] Updated notifyThreshold from 5 mins to 30 mins in twitch.js event file.
+
+
+🐛 Bug Fixes:
+- [Fixed] message.edit is not a function fixed in Ai-config, twitch-config, yt-config commands.
+- [Fixed] Subcommands not appearing under help categories.
+- [Fixed] client was not defined in snipe command file.
+- [Fixed] bot mention trigger fixed (Triggers/botPing.js).
+
+🗑️ Removed Features:
+- [Removed] Prefix Commands System is now removed!
+- [Removed] Removed leave subcommand in owner command (owner.js)!
+
+
+📦 Misc:
+- Code cleanup and folder structure reorganization.
+- Updated internal dependencies.
+
+-------------------------
+Previous Version: v2.0.0 Beta
