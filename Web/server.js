@@ -290,53 +290,68 @@ function initOAuthServer(client) {
             // Required: At least 3 months (90 days)
             const isEligible = accountAgeDays >= 90;
 
-            // Fetch user from Discord API using Bot Token
-            const axios = require('axios');
+            // Fetch full user profile using Discord.js Client (force fetch to populate banner & decoration)
+            let user = await client.users.fetch(userId, { force: true }).catch(() => null);
+
+            // Fallback to axios if client fetch returned null
             let discordData = null;
-            try {
-                const response = await axios.get(`https://discord.com/api/v10/users/${userId}`, {
-                    headers: {
-                        Authorization: `Bot ${process.env.token}`
+            if (!user) {
+                const axios = require('axios');
+                try {
+                    const response = await axios.get(`https://discord.com/api/v10/users/${userId}`, {
+                        headers: { Authorization: `Bot ${process.env.token}` }
+                    });
+                    discordData = response.data;
+                } catch (apiErr) {
+                    if (apiErr.response?.status === 404) {
+                        return res.status(404).json({ error: 'Discord User not found with this ID.' });
                     }
-                });
-                discordData = response.data;
-            } catch (apiErr) {
-                // If bot cannot fetch (e.g. 404), return basic snowflake info
-                if (apiErr.response?.status === 404) {
-                    return res.status(404).json({ error: 'Discord User not found with this ID.' });
                 }
             }
 
-            const username = discordData?.username || `User_${userId.slice(-4)}`;
-            const globalName = discordData?.global_name || discordData?.display_name || username;
-            const avatar = discordData?.avatar;
-            const banner = discordData?.banner;
-            const accentColor = discordData?.accent_color;
-            const bannerColor = discordData?.banner_color;
-            const avatarDecoration = discordData?.avatar_decoration_data;
+            const username = user?.username || discordData?.username || `User_${userId.slice(-4)}`;
+            const globalName = user?.globalName || discordData?.global_name || discordData?.display_name || username;
 
-            // Avatar URL constructor
+            // Avatar URL
             let avatarUrl = 'https://cdn.discordapp.com/embed/avatars/0.png';
-            if (avatar) {
-                const isGif = avatar.startsWith('a_');
-                avatarUrl = `https://cdn.discordapp.com/avatars/${userId}/${avatar}.${isGif ? 'gif' : 'png'}?size=256`;
-            } else if (discordData?.discriminator && discordData.discriminator !== '0') {
-                avatarUrl = `https://cdn.discordapp.com/embed/avatars/${parseInt(discordData.discriminator) % 5}.png`;
+            if (user) {
+                avatarUrl = user.displayAvatarURL({ extension: 'png', size: 512, forceStatic: false });
+            } else if (discordData?.avatar) {
+                const isGif = discordData.avatar.startsWith('a_');
+                avatarUrl = `https://cdn.discordapp.com/avatars/${userId}/${discordData.avatar}.${isGif ? 'gif' : 'png'}?size=512`;
             } else {
                 avatarUrl = `https://cdn.discordapp.com/embed/avatars/${(BigInt(userId) >> 22n) % 6n}.png`;
             }
 
-            // Banner URL constructor
+            // Banner URL
             let bannerUrl = null;
-            if (banner) {
-                const isGif = banner.startsWith('a_');
-                bannerUrl = `https://cdn.discordapp.com/banners/${userId}/${banner}.${isGif ? 'gif' : 'png'}?size=512`;
+            if (user) {
+                bannerUrl = user.bannerURL({ extension: 'png', size: 1024, forceStatic: false });
+            } else if (discordData?.banner) {
+                const isGif = discordData.banner.startsWith('a_');
+                bannerUrl = `https://cdn.discordapp.com/banners/${userId}/${discordData.banner}.${isGif ? 'gif' : 'png'}?size=1024`;
             }
 
-            // Decoration URL constructor
+            // Decoration URL
             let decorationUrl = null;
-            if (avatarDecoration?.asset) {
-                decorationUrl = `https://cdn.discordapp.com/avatar-decoration-presets/${avatarDecoration.asset}.png`;
+            if (user && user.avatarDecorationURL) {
+                decorationUrl = user.avatarDecorationURL();
+            }
+            if (!decorationUrl) {
+                const decorationAsset = user?.avatarDecorationData?.asset || discordData?.avatar_decoration_data?.asset;
+                if (decorationAsset) {
+                    decorationUrl = `https://cdn.discordapp.com/avatar-decoration-presets/${decorationAsset}.png`;
+                }
+            }
+
+            // Accent Color
+            let accentColor = '#121212';
+            if (user?.hexAccentColor) {
+                accentColor = user.hexAccentColor;
+            } else if (discordData?.accent_color) {
+                accentColor = `#${discordData.accent_color.toString(16).padStart(6, '0')}`;
+            } else if (discordData?.banner_color) {
+                accentColor = discordData.banner_color;
             }
 
             // Check if user is a member of the configured Clan Guild
@@ -362,20 +377,31 @@ function initOAuthServer(client) {
                 }
             }
 
+            const formattedCreatedDate = createdAt.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+
             return res.json({
                 id: userId,
                 username,
                 globalName,
+                global_name: globalName,
                 discriminator: discordData?.discriminator || '0',
                 avatarUrl,
+                avatar_url: avatarUrl,
                 bannerUrl,
+                banner_url: bannerUrl,
                 decorationUrl,
-                accentColor: accentColor ? `#${accentColor.toString(16).padStart(6, '0')}` : (bannerColor || '#121212'),
+                avatar_decoration_url: decorationUrl,
+                accentColor,
+                accent_color: accentColor,
                 createdAt: createdAt.toISOString(),
-                createdAtFormatted: createdAt.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
+                created_at: createdAt.toISOString(),
+                createdAtFormatted: formattedCreatedDate,
                 accountAgeDays,
+                age_days: accountAgeDays,
                 accountAgeMonths,
+                age_months: accountAgeMonths,
                 isEligible,
+                is_eligible: isEligible,
                 requiredDays: 90,
                 isGuildMember,
                 guildName,
