@@ -362,7 +362,7 @@ const {
             collector.on('end', async () => {
                 setupSelect.setDisabled(true);
                 disableSelect.setDisabled(true);
-                await message.resource.message.edit({ components: [setupRow, disableRow] });
+                await interaction.editReply({ components: [setupRow, disableRow] }).catch(() => {});
             });
         }
     },

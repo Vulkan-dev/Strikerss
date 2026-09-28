@@ -549,7 +549,7 @@ module.exports = {
         user.balance -= amount;
         await user.save();
 
-        const message = await interaction.reply(`${interaction.user.tag} spent ${client.emoji.currency} ${amount} coins and chose ${side}\nThe coin spins...`);
+        await interaction.reply(`${interaction.user.tag} spent ${client.emoji.currency} ${amount} coins and chose ${side}\nThe coin spins...`);
 
         const delay = Math.floor(Math.random() * (4000 - 2000 + 1)) + 2000;
         await new Promise(resolve => setTimeout(resolve, delay));
@@ -560,9 +560,9 @@ module.exports = {
         if (result === side) {
           user.balance += amount * 2;
           await user.save();
-          await message.edit(`${interaction.user.tag} spent ${client.emoji.currency} ${amount} coins and chose ${side}\nThe coin spins... ${result === 'Heads' ? '🪙' : '🪙'} and you won it all! 🎉`);
+          await interaction.editReply(`${interaction.user.tag} spent ${client.emoji.currency} ${amount} coins and chose ${side}\nThe coin spins... ${result === 'Heads' ? '🪙' : '🪙'} and you won it all! 🎉`).catch(() => {});
         } else {
-          await message.edit(`${interaction.user.tag} spent ${client.emoji.currency} ${amount} coins and chose ${side}\nThe coin spins... ${result === 'Heads' ? '🪙' : '🪙'} and you lost it all... :c`);
+          await interaction.editReply(`${interaction.user.tag} spent ${client.emoji.currency} ${amount} coins and chose ${side}\nThe coin spins... ${result === 'Heads' ? '🪙' : '🪙'} and you lost it all... :c`).catch(() => {});
         }
       }
 

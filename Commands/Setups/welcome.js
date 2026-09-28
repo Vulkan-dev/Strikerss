@@ -196,11 +196,10 @@ module.exports = {
 
         channelCollector.on("end", async (collected) => {
           if (collected.size === 0) {
-            await i.deferUpdate(); // Defer to avoid InteractionNotReplied
             await i.followUp({
               content: "You did not respond in time. Please try again.",
               flags: MessageFlags.Ephemeral,
-            });
+            }).catch(() => {});
             setupStage = null;
           }
         });
@@ -248,11 +247,10 @@ module.exports = {
 
         messageCollector.on("end", async (collected) => {
           if (collected.size === 0) {
-            await i.deferUpdate(); // Defer to avoid InteractionNotReplied
             await i.followUp({
               content: "You did not respond in time. Please try again.",
               flags: MessageFlags.Ephemeral,
-            });
+            }).catch(() => {});
             setupStage = null;
           }
         });
@@ -300,11 +298,10 @@ module.exports = {
 
         embedCollector.on("end", async (collected) => {
           if (collected.size === 0) {
-            await i.deferUpdate(); // Defer to avoid InteractionNotReplied
             await i.followUp({
               content: "You did not respond in time. Please try again.",
               flags: MessageFlags.Ephemeral,
-            });
+            }).catch(() => {});
             setupStage = null;
           }
         });
@@ -352,11 +349,10 @@ module.exports = {
 
         imageCollector.on("end", async (collected) => {
           if (collected.size === 0) {
-            await i.deferUpdate(); // Defer to avoid InteractionNotReplied
             await i.followUp({
               content: "You did not respond in time. Please try again.",
               flags: MessageFlags.Ephemeral,
-            });
+            }).catch(() => {});
             setupStage = null;
           }
         });
@@ -403,11 +399,10 @@ module.exports = {
 
         imageBgCollector.on("end", async (collected) => {
           if (collected.size === 0) {
-            await i.deferUpdate(); // Defer to avoid InteractionNotReplied
             await i.followUp({
               content: "You did not respond in time. Please try again.",
               flags: MessageFlags.Ephemeral,
-            });
+            }).catch(() => {});
             setupStage = null;
           }
         });
@@ -454,11 +449,10 @@ module.exports = {
 
         authorCollector.on("end", async (collected) => {
           if (collected.size === 0) {
-            await i.deferUpdate(); // Defer to avoid InteractionNotReplied
             await i.followUp({
               content: "You did not respond in time. Please try again.",
               flags: MessageFlags.Ephemeral,
-            });
+            }).catch(() => {});
             setupStage = null;
           }
         });
@@ -505,11 +499,10 @@ module.exports = {
 
         titleCollector.on("end", async (collected) => {
           if (collected.size === 0) {
-            await i.deferUpdate(); // Defer to avoid InteractionNotReplied
             await i.followUp({
               content: "You did not respond in time. Please try again.",
               flags: MessageFlags.Ephemeral,
-            });
+            }).catch(() => {});
             setupStage = null;
           }
         });
@@ -700,13 +693,13 @@ module.exports = {
       mainButtons.components.forEach((component) => component.setDisabled(true));
       extraButtons.components.forEach((component) => component.setDisabled(true));
       try {
-        await message.edit({
+        await interaction.editReply({
           content: "The welcome message configuration panel has timed out.",
           embeds: [embed],
           components: [mainButtons, extraButtons],
-        });
+        }).catch(() => {});
       } catch (error) {
-        console.error("Failed to edit message on collector end:", error);
+        // Silently ignore timeout edit errors
       }
     });
   },

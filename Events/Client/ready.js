@@ -81,7 +81,11 @@ module.exports = {
             setTimeout(connectWithRetry, 5000);
         });
 
-        await connectWithRetry();
+        if (mongoose.connection.readyState === 1) {
+            client.logs.success('[DATABASE] Connected to MongoDB successfully.');
+        } else {
+            await connectWithRetry();
+        }
 
         require('events').EventEmitter.defaultMaxListeners = config.eventListeners;
     },

@@ -34,51 +34,56 @@ module.exports = {
     const apiKey = 'AIzaSyD5qwsrTR0HsexRjlNzibLdDZilGS2F0H8'; // Replace with your YouTube Data API key
 
     setInterval(async () => {
-      const mongoose = require('mongoose');
-      if (mongoose.connection.readyState !== 1) return;
+      try {
+        const mongoose = require('mongoose');
+        if (mongoose.connection.readyState !== 1) return;
 
-      const configs = await YouTubeNotification.find();
+        const configs = await YouTubeNotification.find().catch(() => []);
 
-      for (const config of configs) {
-        const channelId = await getChannelIdFromUrl(config.YouTubeChannel, apiKey);
-        if (!channelId) continue;
+        for (const config of configs) {
+          const channelId = await getChannelIdFromUrl(config.YouTubeChannel, apiKey).catch(() => null);
+          if (!channelId) continue;
 
-        const videos = await getLatestVideos(channelId, apiKey);
-        const lastNotified = config.LastNotified ? new Date(config.LastNotified) : null;
-        const notifyThreshold = 5 * 60 * 1000; // 5 minutes
+          const videos = await getLatestVideos(channelId, apiKey).catch(() => []);
+          const lastNotified = config.LastNotified ? new Date(config.LastNotified) : null;
+          const notifyThreshold = 5 * 60 * 1000; // 5 minutes
 
-        for (const video of videos) {
-          const videoId = video.id.videoId;
-          const publishTime = new Date(video.snippet.publishedAt);
-          const isLive = video.snippet.liveBroadcastContent === 'live';
-          const lastStatus = videoStatusMap.get(videoId) || false;
-          const now = new Date();
+          for (const video of videos) {
+            const videoId = video.id?.videoId;
+            if (!videoId || !video.snippet) continue;
+            const publishTime = new Date(video.snippet.publishedAt);
+            const isLive = video.snippet.liveBroadcastContent === 'live';
+            const lastStatus = videoStatusMap.get(videoId) || false;
+            const now = new Date();
 
-          if (
-            publishTime > (lastNotified || new Date(0)) &&
-            !lastStatus &&
-            (!lastNotified || now - lastNotified > notifyThreshold)
-          ) {
-            const channel = await client.channels.fetch(config.Channel);
-            if (channel) {
-              const embed = new EmbedBuilder()
-                .setColor('#FF0000')
-                .setTitle(video.snippet.title)
-                .setURL(`https://www.youtube.com/watch?v=${videoId}`)
-                .setDescription(
-                  `${config.Message}\n${isLive ? '🔴 LIVE NOW!' : '🎥 New Video!'}\n>>> **${video.snippet.title}**`
-                )
-                .setThumbnail(video.snippet.thumbnails.medium.url)
-                .setTimestamp();
+            if (
+              publishTime > (lastNotified || new Date(0)) &&
+              !lastStatus &&
+              (!lastNotified || now - lastNotified > notifyThreshold)
+            ) {
+              const channel = await client.channels.fetch(config.Channel).catch(() => null);
+              if (channel) {
+                const embed = new EmbedBuilder()
+                  .setColor('#FF0000')
+                  .setTitle(video.snippet.title)
+                  .setURL(`https://www.youtube.com/watch?v=${videoId}`)
+                  .setDescription(
+                    `${config.Message}\n${isLive ? '🔴 LIVE NOW!' : '🎥 New Video!'}\n>>> **${video.snippet.title}**`
+                  )
+                  .setThumbnail(video.snippet.thumbnails?.medium?.url || null)
+                  .setTimestamp();
 
-              await channel.send({ embeds: [embed] });
+                await channel.send({ embeds: [embed] }).catch(() => {});
 
-              config.LastNotified = now;
-              await config.save();
-              videoStatusMap.set(videoId, true);
+                config.LastNotified = now;
+                await config.save().catch(() => {});
+                videoStatusMap.set(videoId, true);
+              }
             }
           }
         }
+      } catch (err) {
+        // Silently catch background notification errors
       }
     }, 60000); // Check every minute
   },

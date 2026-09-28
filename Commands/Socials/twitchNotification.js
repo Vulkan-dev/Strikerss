@@ -197,7 +197,7 @@ module.exports = {
           collector.on('end', async () => {
               setupButton.setDisabled(true);
               disableButton.setDisabled(true);
-              await message.resource.message.edit({ components: [row] });
+              await interaction.editReply({ components: [row] }).catch(() => {});
           });
       }
   },

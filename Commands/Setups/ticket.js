@@ -508,16 +508,13 @@ module.exports = {
                 if (reason === 'message_deleted') return;
                 buttons.components.forEach(component => component.setDisabled(true));
                 try {
-                    await message.edit({
+                    await interaction.editReply({
                         content: 'The ticket configuration panel has timed out.',
                         embeds: [embed],
                         components: [buttons],
-                    });
+                    }).catch(() => {});
                 } catch (error) {
-                    if (error.code === 10008) {
-                        return;
-                    }
-                    console.error(error);
+                    // Silently ignore timeout edit errors
                 }
             });
         } else {
@@ -958,29 +955,35 @@ module.exports = {
 // Message event listener to cancel remind timeout on owner activity
 module.exports.setupMessageListener = (client) => {
     client.on('messageCreate', async (message) => {
-        if (message.author.bot || !message.guild) return;
+        try {
+            if (message.author.bot || !message.guild) return;
+            const mongoose = require('mongoose');
+            if (mongoose.connection.readyState !== 1) return;
 
-        const ticketData = await TicketSchema.findOne({
-            GuildID: message.guild.id,
-            ChannelID: message.channel.id,
-            OwnerID: message.author.id,
-            RemindTimeout: { $ne: null },
-        });
+            const ticketData = await TicketSchema.findOne({
+                GuildID: message.guild.id,
+                ChannelID: message.channel.id,
+                OwnerID: message.author.id,
+                RemindTimeout: { $ne: null },
+            }).catch(() => null);
 
-        if (!ticketData) return;
+            if (!ticketData) return;
 
-        clearTimeout(ticketData.RemindTimeout);
-        await TicketSchema.updateOne(
-            { ChannelID: message.channel.id },
-            { RemindTimeout: null }
-        );
+            clearTimeout(ticketData.RemindTimeout);
+            await TicketSchema.updateOne(
+                { ChannelID: message.channel.id },
+                { RemindTimeout: null }
+            ).catch(() => {});
 
-        const activityEmbed = new EmbedBuilder()
-            .setTitle('Ticket Activity Detected')
-            .setDescription(`<@${ticketData.OwnerID}> has sent a message. The inactivity auto-close has been cancelled.`)
-            .setColor('Green')
-            .setTimestamp();
+            const activityEmbed = new EmbedBuilder()
+                .setTitle('Ticket Activity Detected')
+                .setDescription(`<@${ticketData.OwnerID}> has sent a message. The inactivity auto-close has been cancelled.`)
+                .setColor('Green')
+                .setTimestamp();
 
-        await message.channel.send({ embeds: [activityEmbed] }).catch(error => console.error('Failed to send activity message:', error));
+            await message.channel.send({ embeds: [activityEmbed] }).catch(() => {});
+        } catch (error) {
+            // Silently ignore background listener errors
+        }
     });
 };

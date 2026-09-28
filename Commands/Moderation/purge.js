@@ -217,14 +217,11 @@ subcommand
               .setDescription(`Successfully purged **${deletedMessages.size}** messages for the specified criteria.\n \n${finalResult}`)
               .setColor(client.config.embedColor)
         
-          const msg = await interaction.reply({ embeds: [embed], withResponse: true });
+          await interaction.reply({ embeds: [embed] });
           
-          // Check if the message is deletable
-          if (msg.deletable) {
-              setTimeout(() => {
-                  msg.delete().catch(console.error);
-              }, 5000);
-          }
+          setTimeout(() => {
+              interaction.deleteReply().catch(() => {});
+          }, 5000);
       }
            
         let filtered;

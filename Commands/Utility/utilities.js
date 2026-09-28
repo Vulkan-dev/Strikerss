@@ -139,7 +139,7 @@ module.exports = {
           row.components.forEach((c) => {
             c.setDisabled(true);
           });
-          await message.edit({ components: [row] });
+          await interaction.editReply({ components: [row] }).catch(() => {});
         });
     }
     

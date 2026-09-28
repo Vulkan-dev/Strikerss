@@ -49,6 +49,15 @@ const axios = require('axios');
 const MongoStore = require('connect-mongo');
 require('dotenv').config();
 
+// Connect to MongoDB early at startup so database is ready before Discord events arrive
+if (process.env.mongodbURL) {
+  mongoose.set("strictQuery", false);
+  mongoose.connect(process.env.mongodbURL, {
+    serverSelectionTimeoutMS: 15000,
+    family: 4
+  }).catch(() => {});
+}
+
 // -------------------------------
 // Configuration and Constants
 // -------------------------------

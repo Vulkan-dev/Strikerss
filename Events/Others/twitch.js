@@ -29,34 +29,38 @@ module.exports = {
   once: true,
   async execute(client) {
     setInterval(async () => {
-      const mongoose = require('mongoose');
-      if (mongoose.connection.readyState !== 1) return;
+      try {
+        const mongoose = require('mongoose');
+        if (mongoose.connection.readyState !== 1) return;
 
-      const configs = await TwitchNotification.find();
-    
-      for (const config of configs) {
-        const streamerName = config.Streamer.split('/').pop();
-        const isLive = await isStreamerLive(streamerName);
-        const lastStatus = liveStatusMap.get(streamerName) || false;
+        const configs = await TwitchNotification.find().catch(() => []);
+      
+        for (const config of configs) {
+          const streamerName = config.Streamer.split('/').pop();
+          const isLive = await isStreamerLive(streamerName).catch(() => false);
+          const lastStatus = liveStatusMap.get(streamerName) || false;
 
-        // Check if the streamer is live and if we haven't notified recently
-        const now = new Date();
-        const lastNotified = config.LastNotified ? new Date(config.LastNotified) : null;
-        const notifyThreshold = 30 * 60 * 1000; // 30 minutes in milliseconds
+          // Check if the streamer is live and if we haven't notified recently
+          const now = new Date();
+          const lastNotified = config.LastNotified ? new Date(config.LastNotified) : null;
+          const notifyThreshold = 30 * 60 * 1000; // 30 minutes in milliseconds
 
-        if (isLive && !lastStatus && (!lastNotified || now - lastNotified > notifyThreshold)) {
-          const channel = await client.channels.fetch(config.Channel);
-          if (channel) {
-            const customMessage = config.Message;
-            await channel.send({ content: `${customMessage} \n>>> [**${streamerName} is live here**](${config.Streamer})` });
+          if (isLive && !lastStatus && (!lastNotified || now - lastNotified > notifyThreshold)) {
+            const channel = await client.channels.fetch(config.Channel).catch(() => null);
+            if (channel) {
+              const customMessage = config.Message;
+              await channel.send({ content: `${customMessage} \n>>> [**${streamerName} is live here**](${config.Streamer})` }).catch(() => {});
 
-            // Update LastNotified field
-            config.LastNotified = now;
-            await config.save();
+              // Update LastNotified field
+              config.LastNotified = now;
+              await config.save().catch(() => {});
+            }
           }
+      
+          liveStatusMap.set(streamerName, isLive);
         }
-    
-        liveStatusMap.set(streamerName, isLive);
+      } catch (err) {
+        // Silently catch background notification errors
       }
     }, 60000);
   },

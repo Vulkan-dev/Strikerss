@@ -266,11 +266,11 @@ const {
   
       collector.on("end", async () => {
         initialButtons.components.forEach((component) => component.setDisabled(true));
-        await message.edit({
+        await interaction.editReply({
           content: "The logging configuration panel has timed out.",
           embeds: [embed],
           components: [initialButtons],
-        });
+        }).catch(() => {});
       });
     },
   };
