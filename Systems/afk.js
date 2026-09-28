@@ -1,8 +1,10 @@
 const afkSchema = require("../Schemas/afkschema");
+const mongoose = require('mongoose');
 const { Events, MessageFlags } = require('discord.js');
 
 module.exports = (client) => {
     client.on(Events.MessageCreate, async (message) => {
+        if (mongoose.connection.readyState !== 1) return;
         if (message.author.bot) return;
         if (!message.guild) return;
 

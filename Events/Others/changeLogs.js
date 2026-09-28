@@ -11,6 +11,11 @@ module.exports = {
 
     if (customId !== "changelogs") return;
 
+    const mongoose = require("mongoose");
+    if (mongoose.connection.readyState !== 1) {
+      return interaction.reply({ content: "Database is connecting, please try again.", flags: MessageFlags.Ephemeral }).catch(() => {});
+    }
+
     function isValidHexColor(str) {
       return /^#[0-9A-F]{6}$/i.test(str);
     }

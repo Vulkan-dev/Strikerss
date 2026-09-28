@@ -4,7 +4,10 @@ const { Events, MessageFlags, MessageType, PermissionsBitField } = require('disc
 
 module.exports = (client) => {
     client.on(Events.MessageDelete, async (message) => {
-        if (message.guild === null) return;
+        if (!message || message.guild === null) return;
+
+        const mongoose = require('mongoose');
+        if (mongoose.connection.readyState !== 1) return;
 
         const Data = await ghostSchema.findOne({ Guild: message.guild.id });
         if (!Data) return;

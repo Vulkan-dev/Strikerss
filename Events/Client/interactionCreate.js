@@ -108,15 +108,21 @@ module.exports = {
           });
         }
 
-        try{
+        try {
             await command.execute(interaction, client);
-          } catch (error) {
-            console.log(error);
+        } catch (error) {
+            console.error(`[COMMAND ERROR] /${interaction.commandName}:`, error);
           
-        await interaction.reply({
-          content: 'There was an error while executing this command. If this persists, please contact the developer by making a support request.',
-          flags: MessageFlags.Ephemeral,
-        });
-       }
+            const errorMsg = {
+                content: 'There was an error while executing this command. If this persists, please contact the developer by making a support request.',
+                flags: MessageFlags.Ephemeral,
+            };
+
+            if (interaction.replied || interaction.deferred) {
+                await interaction.followUp(errorMsg).catch(() => {});
+            } else {
+                await interaction.reply(errorMsg).catch(() => {});
+            }
+        }
       }
     }

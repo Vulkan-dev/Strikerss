@@ -8,6 +8,9 @@ module.exports = {
         const { guild, member, customId, channel } = interaction;
         const { ManageChannels, SendMessages } = PermissionFlagsBits;
         if (!['ticket-manage-menu'].includes(customId)) return;
+        const mongoose = require('mongoose');
+        if (mongoose.connection.readyState !== 1) return;
+
         await interaction.deferUpdate();
         await interaction.deleteReply();
         const embed = new EmbedBuilder()

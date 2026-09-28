@@ -1,4 +1,4 @@
-﻿const { Collection, Events, PermissionsBitField } = require("discord.js");
+const { Collection, Events, PermissionsBitField } = require("discord.js");
 const Invite = require("../Schemas/inviteSchema");
 
 const inviteCache = new Collection();
@@ -79,7 +79,9 @@ module.exports = (client) => {
     });
 
     client.on(Events.GuildMemberAdd, async (member) => {
-        if (member.user.bot) return;
+        if (!member || member.user?.bot) return;
+        const mongoose = require('mongoose');
+        if (mongoose.connection.readyState !== 1) return;
         const { guild } = member;
 
         const cachedInvites = inviteCache.get(guild.id);
@@ -134,7 +136,9 @@ module.exports = (client) => {
     });
 
     client.on(Events.GuildMemberRemove, async (member) => {
-        if (member.user.bot) return;
+        if (!member || member.user?.bot) return;
+        const mongoose = require('mongoose');
+        if (mongoose.connection.readyState !== 1) return;
         const { guild } = member;
 
         const memberData = await Invite.findOne({ guildId: guild.id, userId: member.id });

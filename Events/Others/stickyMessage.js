@@ -4,11 +4,14 @@ const sticky = require('../../Schemas/stickySchema');
 module.exports = {
     name: Events.MessageCreate,
     async execute(message, client) {
-        if (!message.guild || !message.channel) return;
+        if (!message || !message.guild || !message.channel) return;
+        if (message.author?.bot) return;
+
+        const mongoose = require('mongoose');
+        if (mongoose.connection.readyState !== 1) return;
 
         var data = await sticky.find({ Guild: message.guild.id, Channel: message.channel.id });
         if (data.length === 0) return;
-        if (message.author.bot) return;
 
         await Promise.all(data.map(async value => {
             if (value.Count === value.Cap - 1) {

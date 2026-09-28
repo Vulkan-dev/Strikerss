@@ -7,6 +7,8 @@ const BoosterChannel = require('../Schemas/boosterChannel');
 module.exports = (client) => {
   client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
     if (!oldMember.premiumSince && newMember.premiumSince) {
+      const mongoose = require('mongoose');
+      if (mongoose.connection.readyState !== 1) return;
       const boosterChannelData = await BoosterChannel.findOne({ guildId: newMember.guild.id });
       const idchannel = boosterChannelData ? boosterChannelData.channelId : null;
 

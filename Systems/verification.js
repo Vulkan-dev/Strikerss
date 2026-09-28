@@ -5,6 +5,10 @@ const { Events, EmbedBuilder, ChannelType, AttachmentBuilder, ActionRowBuilder, 
 module.exports = (client) => {
     // Event: InteractionCreate (Verification System)
     client.on(Events.InteractionCreate, async (interaction) => {
+        if (!['verify', 'captchaenter', 'vermodal'].includes(interaction.customId)) return;
+        const mongoose = require('mongoose');
+        if (mongoose.connection.readyState !== 1) return;
+
         if (interaction.customId === "verify") {
             if (interaction.guild === null) return;
 
@@ -233,6 +237,10 @@ module.exports = (client) => {
     // Event: guildMemberRemove (Remove Verification Data)
     client.on(Events.GuildMemberRemove, async (member) => {
         try {
+            if (!member || !member.guild || !member.user) return;
+            const mongoose = require('mongoose');
+            if (mongoose.connection.readyState !== 1) return;
+
             const userId = member.user.id;
             const userverdata = await verifyusers.findOne({
                 Guild: member.guild.id,

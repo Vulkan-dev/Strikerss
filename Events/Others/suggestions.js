@@ -19,6 +19,8 @@ module.exports = {
   async execute(interaction, client) {
       if (!interaction.guild) return;
       if (!interaction.message) return;
+      const mongoose = require("mongoose");
+      if (mongoose.connection.readyState !== 1) return;
 
       if (interaction.isButton()) {
           const data = await suggestion.findOne({

@@ -18,6 +18,8 @@ module.exports = (client) => {
     client.on(Events.MessageCreate, async (message) => {
         if (message.guild) return;
         if (message.author.id === client.user.id) return;
+        const mongoose = require('mongoose');
+        if (mongoose.connection.readyState !== 1) return;
 
         const usesdata = await moduses.findOne({ User: message.author.id });
 
@@ -132,6 +134,9 @@ module.exports = (client) => {
         if (!interaction.isModalSubmit()) return;
 
         if (interaction.customId === "selectmodmailmodal") {
+            const mongoose = require('mongoose');
+            if (mongoose.connection.readyState !== 1) return;
+
             const data = await moduses.findOne({ User: interaction.user.id });
             if (data) {
                 return await interaction.reply({
@@ -226,6 +231,11 @@ module.exports = (client) => {
 
     // Event: InteractionCreate (Button Interactions)
     client.on(Events.InteractionCreate, async (interaction) => {
+        if (!interaction.isButton()) return;
+        if (interaction.customId !== "deletemodmail" && interaction.customId !== "closemodmail") return;
+        const mongoose = require('mongoose');
+        if (mongoose.connection.readyState !== 1) return;
+
         if (interaction.customId === "deletemodmail") {
             const closeembed = new EmbedBuilder()
                 .setColor(client.config.embedColor)
@@ -301,8 +311,10 @@ module.exports = (client) => {
 
     // Event: MessageCreate (Guild Messages)
     client.on(Events.MessageCreate, async (message) => {
-        if (message.author.bot) return;
+        if (!message || message.author?.bot) return;
         if (!message.guild) return;
+        const mongoose = require('mongoose');
+        if (mongoose.connection.readyState !== 1) return;
 
         const data = await modschema.findOne({ Guild: message.guild.id });
         if (!data) return;

@@ -9,6 +9,11 @@ module.exports = {
             if (!interaction.isButton()) return;
             if (interaction.customId !== 'giveaway_enter') return;
 
+            const mongoose = require('mongoose');
+            if (mongoose.connection.readyState !== 1) {
+                return interaction.reply({ content: 'Database is currently connecting. Please try again in a few seconds.', flags: MessageFlags.Ephemeral }).catch(() => {});
+            }
+
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
             const giveawayId = interaction.message.id;

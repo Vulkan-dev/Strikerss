@@ -1,4 +1,5 @@
 const { Events, EmbedBuilder, ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionsBitField, MessageFlags } = require('discord.js');
+const mongoose = require('mongoose');
 const joinschema = require("../Schemas/jointocreate");
 const joinchannelschema = require("../Schemas/jointocreatechannels");
 const jtcpanelschema = require("../Schemas/jtc-panel");
@@ -6,6 +7,7 @@ const jtcpanelschema = require("../Schemas/jtc-panel");
 module.exports = (client) => {
     // Event: VoiceStateUpdate (Join to Create)
     client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
+        if (mongoose.connection.readyState !== 1) return;
         if (!newState.guild) return;
 
         try {
@@ -186,6 +188,7 @@ module.exports = (client) => {
 
     // Event: VoiceStateUpdate (Channel Deletion)
     client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
+        if (mongoose.connection.readyState !== 1) return;
         try {
             if (oldState.member.guild === null) return;
         } catch (err) {
@@ -261,6 +264,7 @@ module.exports = (client) => {
 
     // Button Interaction Handler
     client.on(Events.InteractionCreate, async (interaction) => {
+        if (mongoose.connection.readyState !== 1) return;
         if (!interaction.isButton()) return;
 
         if (!interaction.customId.startsWith('jtc_')) return;

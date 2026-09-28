@@ -29,6 +29,9 @@ module.exports = {
   once: true,
   async execute(client) {
     setInterval(async () => {
+      const mongoose = require('mongoose');
+      if (mongoose.connection.readyState !== 1) return;
+
       const configs = await TwitchNotification.find();
     
       for (const config of configs) {

@@ -34,6 +34,9 @@ module.exports = {
     const apiKey = 'AIzaSyD5qwsrTR0HsexRjlNzibLdDZilGS2F0H8'; // Replace with your YouTube Data API key
 
     setInterval(async () => {
+      const mongoose = require('mongoose');
+      if (mongoose.connection.readyState !== 1) return;
+
       const configs = await YouTubeNotification.find();
 
       for (const config of configs) {

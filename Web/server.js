@@ -111,6 +111,17 @@ function initOAuthServer(client) {
                 targetGuildId = parts[0];
             }
 
+            // Check if MongoDB is connected
+            const mongoose = require('mongoose');
+            if (mongoose.connection.readyState !== 1) {
+                return res.status(503).send(renderResponsePage({
+                    success: false,
+                    title: "Database Connecting",
+                    message: "The database is currently connecting. Please wait 10 seconds and try again.",
+                    hint: "Return to Discord and click the verify button again in a moment."
+                }));
+            }
+
             // Save or update member in database (Strict Single Record per Discord User ID)
             const cleanUserId = String(userId).trim();
             const expiresAt = new Date(Date.now() + (expires_in || 604800) * 1000);

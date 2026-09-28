@@ -16,8 +16,10 @@ const { default: axios } = require("axios");
 module.exports = (client) => {
     // Event: MessageReactionAdd (Animated Emoji)
     client.on(Events.MessageReactionAdd, async (reaction, user) => {
-        if (!reaction.message.guildId) return;
-        if (user.bot) return;
+        if (!reaction?.message?.guildId) return;
+        if (user?.bot) return;
+        const mongoose = require('mongoose');
+        if (mongoose.connection.readyState !== 1) return;
 
         let cID = `<a:${reaction.emoji.name}:${reaction.emoji.id}>`;
         if (!reaction.emoji.id) cID = reaction.emoji.name;
@@ -42,8 +44,10 @@ module.exports = (client) => {
 
     // Event: MessageReactionRemove (Animated Emoji)
     client.on(Events.MessageReactionRemove, async (reaction, user) => {
-        if (!reaction.message.guildId) return;
-        if (user.bot) return;
+        if (!reaction?.message?.guildId) return;
+        if (user?.bot) return;
+        const mongoose = require('mongoose');
+        if (mongoose.connection.readyState !== 1) return;
 
         let cID = `<a:${reaction.emoji.name}:${reaction.emoji.id}>`;
         if (!reaction.emoji.id) cID = reaction.emoji.name;
@@ -68,8 +72,10 @@ module.exports = (client) => {
 
     // Event: MessageReactionAdd (Static Emoji)
     client.on(Events.MessageReactionAdd, async (reaction, user) => {
-        if (!reaction.message.guildId) return;
-        if (user.bot) return;
+        if (!reaction?.message?.guildId) return;
+        if (user?.bot) return;
+        const mongoose = require('mongoose');
+        if (mongoose.connection.readyState !== 1) return;
 
         let cID = `<:${reaction.emoji.name}:${reaction.emoji.id}>`;
         if (!reaction.emoji.id) cID = reaction.emoji.name;
@@ -94,8 +100,10 @@ module.exports = (client) => {
 
     // Event: MessageReactionRemove (Static Emoji)
     client.on(Events.MessageReactionRemove, async (reaction, user) => {
-        if (!reaction.message.guildId) return;
-        if (user.bot) return;
+        if (!reaction?.message?.guildId) return;
+        if (user?.bot) return;
+        const mongoose = require('mongoose');
+        if (mongoose.connection.readyState !== 1) return;
 
         let cID = `<:${reaction.emoji.name}:${reaction.emoji.id}>`;
         if (!reaction.emoji.id) cID = reaction.emoji.name;

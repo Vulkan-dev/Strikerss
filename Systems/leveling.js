@@ -13,9 +13,11 @@ const {
 const levelSchema = require("../Schemas/level");
 const levelschema = require("../Schemas/levelsetup");
 const levelRoleSchema = require("../Schemas/levelRoleSchema");
+const mongoose = require('mongoose');
 
 module.exports = (client) => {
     client.on(Events.MessageCreate, async (message) => {
+        if (mongoose.connection.readyState !== 1) return;
         const { guild, author, member, channel } = message;
       
         if (!guild || author.bot) return;

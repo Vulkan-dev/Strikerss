@@ -1,9 +1,11 @@
 const { Events, EmbedBuilder, MessageFlags } = require('discord.js');
+const mongoose = require('mongoose');
 const voiceLevelSchema = require("../Schemas/voiceLevel");
 const voiceBlacklistSchema = require("../Schemas/voiceBlacklist");
 
 module.exports = (client) => {
     client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
+        if (mongoose.connection.readyState !== 1) return;
         const { guild, member } = newState;
 
         if (!guild || member.user.bot) return;

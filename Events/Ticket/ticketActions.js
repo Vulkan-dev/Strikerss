@@ -10,6 +10,10 @@ module.exports = {
         const { guild, member, customId, channel } = interaction;
 
         if (interaction.isStringSelectMenu() && customId === 'ticket-dropdown') {
+            const mongoose = require('mongoose');
+            if (mongoose.connection.readyState !== 1) {
+                return interaction.reply({ content: 'Database is connecting, please try again in a few seconds.', flags: MessageFlags.Ephemeral }).catch(() => {});
+            }
             const docs = await TicketSetup.findOne({ GuildID: guild.id });
             if (!docs) {
                 return interaction.reply({ embeds: [new EmbedBuilder().setDescription('Ticket system is not set up.').setColor('Red')], flags: MessageFlags.Ephemeral });
@@ -147,7 +151,13 @@ module.exports = {
             }
         }
 
-        if (interaction.isButton()) {
+        const ticketButtonIds = ['ticket-close', 'ticket-lock', 'ticket-unlock', 'ticket-claim', 'ticket-manage', 'ticket-reopen', 'ticket-delete', 'ticket-transcript', 'stop-delete'];
+        if (interaction.isButton() && ticketButtonIds.includes(customId)) {
+            const mongoose = require('mongoose');
+            if (mongoose.connection.readyState !== 1) {
+                return interaction.reply({ content: 'Database is connecting, please try again in a few seconds.', flags: MessageFlags.Ephemeral }).catch(() => {});
+            }
+
             const docs = await TicketSetup.findOne({ GuildID: guild.id });
             if (!docs) return;
 

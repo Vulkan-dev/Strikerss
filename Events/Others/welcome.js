@@ -5,6 +5,10 @@ const { Card } = require("welcomify");
 module.exports = {
   name: Events.GuildMemberAdd,
   async execute(member) {
+    if (!member || !member.guild) return;
+    const mongoose = require("mongoose");
+    if (mongoose.connection.readyState !== 1) return;
+
     const welcomeMessage = await WelcomeMessage.findOne({
       guildId: member.guild.id,
     });

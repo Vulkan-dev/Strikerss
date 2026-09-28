@@ -4,6 +4,10 @@ function handleLogs(client) {
   const logSchema = require("../../Schemas/logschema");
 
   async function send_log(guildId, embed, logType) {
+    if (!guildId) return;
+    const mongoose = require('mongoose');
+    if (mongoose.connection.readyState !== 1) return;
+
     const data = await logSchema.findOne({ Guild: guildId });
     if (!data || !data.LogChannels) return;
 

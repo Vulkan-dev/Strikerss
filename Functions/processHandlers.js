@@ -7,6 +7,12 @@ module.exports = () => {
 
     // Uncaught exception
     process.on('uncaughtException', (err) => {
+        if (err && err.message && (
+            err.message.includes('before initial connection is complete') ||
+            err.message.includes('buffering timed out') ||
+            err.message.includes('ECONNREFUSED') ||
+            err.message.includes('Could not connect to any servers in your MongoDB Atlas cluster')
+        )) return;
         console.error(`[ERROR] Uncaught Exception:`, err.message || err);
     });
 
@@ -17,8 +23,13 @@ module.exports = () => {
 
     // Unhandled rejection
     process.on('unhandledRejection', (err) => {
-        // Filter out expected DNS or cancelled requests
-        if (err && err.message && (err.message.includes('ECONNREFUSED') || err.message.includes('buffering timed out'))) return;
+        // Filter out expected DNS, MongoDB buffering, or cancelled requests
+        if (err && err.message && (
+            err.message.includes('before initial connection is complete') ||
+            err.message.includes('ECONNREFUSED') ||
+            err.message.includes('buffering timed out') ||
+            err.message.includes('Could not connect to any servers in your MongoDB Atlas cluster')
+        )) return;
         console.error(`[ERROR] Unhandled Rejection:`, err.message || err);
     });
 

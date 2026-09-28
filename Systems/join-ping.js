@@ -14,6 +14,10 @@ const pingschema = require("../Schemas/joinping");
 
 module.exports = (client) => {
     client.on(Events.GuildMemberAdd, async (member, err) => {
+        if (!member || !member.guild) return;
+        const mongoose = require('mongoose');
+        if (mongoose.connection.readyState !== 1) return;
+
         const pingdata = await pingschema.findOne({ Guild: member.guild.id });
       
         if (!pingdata) return;

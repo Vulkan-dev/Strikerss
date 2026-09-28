@@ -13,8 +13,11 @@ const {
 
 module.exports = (client) => {
     client.on(Events.MessageCreate, async (message) => {
+        if (!message || message.guild === null) return;
+        const mongoose = require('mongoose');
+        if (mongoose.connection.readyState !== 1) return;
+
         const countschema = require("../Schemas/counting");
-        if (message.guild === null) return;
         const countdata = await countschema.findOne({ Guild: message.guild.id });
         let reaction = "";
       

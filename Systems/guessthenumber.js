@@ -3,7 +3,9 @@ const { Events, MessageFlags } = require('discord.js');
 
 module.exports = (client) => {
     client.on(Events.MessageCreate, async (message) => {
-        if (message.author.bot) return;
+        if (!message || message.author?.bot) return;
+        const mongoose = require('mongoose');
+        if (mongoose.connection.readyState !== 1) return;
 
         const data = await Schema.findOne({ channelId: message.channel.id });
         if (!data) return;

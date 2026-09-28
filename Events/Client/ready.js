@@ -55,23 +55,33 @@ module.exports = {
 
         mongoose.set("strictQuery", false);
         
-        // Database connection with safeguards
-        try {
-            const dns = require('dns');
-            if (dns.setDefaultResultOrder) {
-                dns.setDefaultResultOrder('ipv4first');
+        // Database connection with auto-reconnect and retry logic
+        const connectWithRetry = async () => {
+            try {
+                const dns = require('dns');
+                if (dns.setDefaultResultOrder) {
+                    dns.setDefaultResultOrder('ipv4first');
+                }
+                dns.setServers(['8.8.8.8', '1.1.1.1']);
+                
+                await mongoose.connect(mongodbURL, {
+                    serverSelectionTimeoutMS: 15000,
+                    family: 4
+                });
+                client.logs.success('[DATABASE] Connected to MongoDB successfully.');
+            } catch (error) {
+                client.logs.error(`[DATABASE] Failed to connect to MongoDB: ${error.message}`);
+                client.logs.warn('[DATABASE] Retrying MongoDB connection in 5 seconds... Make sure 0.0.0.0/0 is whitelisted in MongoDB Atlas: https://cloud.mongodb.com/');
+                setTimeout(connectWithRetry, 5000);
             }
-            dns.setServers(['8.8.8.8', '1.1.1.1']);
-            
-            await mongoose.connect(mongodbURL, {
-                serverSelectionTimeoutMS: 10000,
-                family: 4
-            });
-            client.logs.success('[DATABASE] Connected to MongoDB successfully.');
-        } catch (error) {
-            client.logs.error(`[DATABASE] Failed to connect to MongoDB: ${error.message}`);
-            client.logs.warn('[DATABASE] IMPORTANT: If deployed on cloud platforms like Railway, whitelist 0.0.0.0/0 in MongoDB Atlas Network Access: https://cloud.mongodb.com/');
-        }
+        };
+
+        mongoose.connection.on('disconnected', () => {
+            client.logs.warn('[DATABASE] MongoDB disconnected. Attempting reconnection...');
+            setTimeout(connectWithRetry, 5000);
+        });
+
+        await connectWithRetry();
 
         require('events').EventEmitter.defaultMaxListeners = config.eventListeners;
     },
