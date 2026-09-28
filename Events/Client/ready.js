@@ -54,7 +54,6 @@ module.exports = {
         }
 
         mongoose.set("strictQuery", false);
-        mongoose.set("bufferCommands", false);
         
         // Database connection with safeguards
         try {
@@ -62,12 +61,12 @@ module.exports = {
             dns.setServers(['8.8.8.8', '1.1.1.1']);
             
             await mongoose.connect(mongodbURL, {
-                serverSelectionTimeoutMS: 8000
+                serverSelectionTimeoutMS: 10000
             });
             client.logs.success('[DATABASE] Connected to MongoDB successfully.');
         } catch (error) {
             client.logs.error(`[DATABASE] Failed to connect to MongoDB: ${error.message}`);
-            client.logs.warn('[DATABASE] Please whitelist your current IP address in MongoDB Atlas Network Access: https://cloud.mongodb.com/');
+            client.logs.warn('[DATABASE] IMPORTANT: If deployed on cloud platforms like Railway, whitelist 0.0.0.0/0 in MongoDB Atlas Network Access: https://cloud.mongodb.com/');
         }
 
         require('events').EventEmitter.defaultMaxListeners = config.eventListeners;

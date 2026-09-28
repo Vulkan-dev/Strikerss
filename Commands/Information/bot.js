@@ -14,11 +14,6 @@ const { formatTime } = require("../../Utils/time");
 const logs = require("../../Utils/logs");
 // TODO some commands are not working
 
-mongoose.set("strictQuery", true);
-mongoose.connect(process.env.mongodbURL);
-
-const Test = mongoose.model("Test", { name: String });
-
 module.exports = {
     data: new SlashCommandBuilder()
         .setName("bot")
