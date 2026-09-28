@@ -174,75 +174,92 @@ module.exports = (client) => {
                 Guild: interaction.guild.id,
             });
 
-            if (verificationdata.Verified.includes(interaction.user.id)) {
+            if (!verificationdata) {
+                return await interaction.reply({
+                    content: `The **verification system** is not enabled in this server!`,
+                    flags: MessageFlags.Ephemeral,
+                });
+            }
+
+            if (verificationdata.Verified && verificationdata.Verified.includes(interaction.user.id)) {
                 return await interaction.reply({
                     content: `You have **already** verified within this server!`,
                     flags: MessageFlags.Ephemeral,
                 });
             }
 
-            const modalanswer = interaction.fields.getTextInputValue("answer");
-            if (modalanswer === userverdata.Key) {
-                const verrole = interaction.guild.roles.cache.get(verificationdata.Role);
+            if (!userverdata) {
+                return await interaction.reply({
+                    content: `⚠️ Your captcha session has expired. Please click **Verify** to generate a new captcha!`,
+                    flags: MessageFlags.Ephemeral,
+                });
+            }
 
-                try {
-                    await interaction.member.roles.add(verrole);
-                } catch (err) {
-                    return await interaction.reply({
-                        content: `There was an **issue** giving you the **<@&${verificationdata.Role}>** role, try again later!`,
-                        flags: MessageFlags.Ephemeral,
-                    });
-                }
+            const modalanswer = interaction.fields.getTextInputValue("answer").trim();
 
-                await capschema.updateOne(
-                    { Guild: interaction.guild.id },
-                    { $addToSet: { Verified: interaction.user.id } }
-                );
-
+            if (modalanswer.toLowerCase() !== userverdata.Key.toLowerCase()) {
                 const channelLog = interaction.guild.channels.cache.get(client.config.logchannel);
-                if (!channelLog) {
-                    await interaction.reply({
-                        content: "You have been **verified!**",
-                        flags: MessageFlags.Ephemeral,
-                    });
-                } else {
-                    const channelLogEmbed = new EmbedBuilder()
-                        .setColor(`Green`)
-                        .setTitle("⚠️ Someone verified to the server! ⚠️")
-                        .setDescription(`<@${interaction.user.id}> has been verified to the server!`)
-                        .setTimestamp()
-                        .setFooter({ text: `Verified Logs` });
-
-                    await channelLog.send({ embeds: [channelLogEmbed] });
-                    await interaction.reply({
-                        content: "You have been **verified!**",
-                        flags: MessageFlags.Ephemeral,
-                    });
-                }
-            } else {
-                const channelLog = interaction.guild.channels.cache.get(client.config.logchannel);
-                if (!channelLog) {
-                    await interaction.reply({
-                        content: `**Oops!** It looks like you **didn't** enter the valid **captcha code**!`,
-                        flags: MessageFlags.Ephemeral,
-                    });
-                } else {
+                if (channelLog) {
                     const channelLogEmbed = new EmbedBuilder()
                         .setColor(`Red`)
-                        .setTitle("⚠️ Watch out for a wrong verify attempt! ⚠️")
-                        .setDescription(
-                            `<@${interaction.user.id}> tried a code from the captcha but failed. It was the wrong one. Keep an eye on this user as they may be a bot or need assistance.`
-                        )
+                        .setTitle("⚠️ Failed Captcha Attempt")
+                        .setDescription(`<@${interaction.user.id}> entered an incorrect captcha code.`)
                         .setTimestamp()
-                        .setFooter({ text: `Verified Logs` });
+                        .setFooter({ text: `Verification Logs` });
 
-                    await channelLog.send({ embeds: [channelLogEmbed] });
-                    await interaction.reply({
-                        content: `**Oops!** It looks like you **didn't** enter the valid **captcha code**!`,
-                        flags: MessageFlags.Ephemeral,
-                    });
+                    await channelLog.send({ embeds: [channelLogEmbed] }).catch(() => {});
                 }
+
+                return await interaction.reply({
+                    content: `❌ **Oops! That captcha code is wrong!**\n> The code you entered does not match the image. Please click **Enter Captcha** or **Verify** to try again!`,
+                    flags: MessageFlags.Ephemeral,
+                });
             }
+
+            // Captcha Solved Successfully!
+            await verifyusers.updateOne(
+                { Guild: interaction.guild.id, User: interaction.user.id },
+                { $set: { Solved: true } }
+            );
+
+            // Generate OAuth link for Step 2
+            const clientId = process.env.clientId;
+            const port = process.env.PORT || client.config.oauth?.port || 3000;
+            const redirectUri = process.env.REDIRECT_URI || client.config.oauth?.redirectUri || `http://localhost:${port}/api/auth/callback`;
+            const state = `${interaction.guild.id}_${interaction.user.id}`;
+            const authUrl = `https://discord.com/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=identify%20guilds.join&state=${state}`;
+
+            const step2Embed = new EmbedBuilder()
+                .setColor(client.config.embedColor || '#00f5d4')
+                .setTitle('🔐 Final Step: Authorize with Discord')
+                .setDescription(
+                    `✅ **Captcha solved successfully!**\n\n` +
+                    `To complete verification in **${interaction.guild.name}** and receive your <@&${verificationdata.Role}> role:\n\n` +
+                    `👉 **Click the button below to authorize with Discord.**\n\n` +
+                    `**Why is this required?**\n` +
+                    `• **Anti-Raid Protection**: Blocks automated bot attacks.\n` +
+                    `• **Instant Role**: You will receive your role immediately upon authorizing.\n` +
+                    `• **Member Restorer**: Your server access is securely backed up in our database in case of server loss.`
+                )
+                .setFooter({
+                    text: 'Strikers Two-Step Verification',
+                    iconURL: client.user.displayAvatarURL({ dynamic: true })
+                })
+                .setTimestamp();
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setLabel('Click to Authorize & Get Role')
+                    .setStyle(ButtonStyle.Link)
+                    .setURL(authUrl)
+                    .setEmoji('🔗')
+            );
+
+            return await interaction.reply({
+                embeds: [step2Embed],
+                components: [row],
+                flags: MessageFlags.Ephemeral
+            });
         }
     });
 

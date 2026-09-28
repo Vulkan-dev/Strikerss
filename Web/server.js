@@ -1,6 +1,8 @@
 const express = require('express');
 const OAuthMember = require('../Schemas/oauthMemberSchema');
 const OAuthVerify = require('../Schemas/oauthVerifySchema');
+const VerificationSchema = require('../Schemas/verificationSchema');
+const VerifyUsers = require('../Schemas/verifyusers');
 const { exchangeCode, fetchUserProfile } = require('./oauthHelper');
 
 function initOAuthServer(client) {
@@ -171,13 +173,60 @@ function initOAuthServer(client) {
                 const guild = client.guilds.cache.get(targetGuildId);
                 if (guild) {
                     guildName = guild.name;
-                    const verifyConfig = await OAuthVerify.findOne({ guildId: targetGuildId, enabled: true });
-                    if (verifyConfig && verifyConfig.roleId) {
+                    let targetRoleId = null;
+
+                    // 1. Check Captcha Verification schema (/verify-config)
+                    const capConfig = await VerificationSchema.findOne({ Guild: targetGuildId });
+                    if (capConfig && capConfig.Role) {
+                        const userCapData = await VerifyUsers.findOne({ Guild: targetGuildId, User: cleanUserId });
+                        const isAlreadyVerified = Array.isArray(capConfig.Verified) && capConfig.Verified.includes(cleanUserId);
+
+                        // Anti-Bot: Require Captcha to be solved in Discord first
+                        if (!isAlreadyVerified && (!userCapData || !userCapData.Solved)) {
+                            return res.status(403).send(renderResponsePage({
+                                success: false,
+                                title: "Captcha Required First",
+                                message: "You must solve the verification Captcha inside Discord before authorizing.",
+                                hint: "Please return to Discord, click Verify in the verification channel, and enter the Captcha code first."
+                            }));
+                        }
+
+                        targetRoleId = capConfig.Role;
+                        await VerificationSchema.updateOne(
+                            { Guild: targetGuildId },
+                            { $addToSet: { Verified: cleanUserId } }
+                        );
+                        await VerifyUsers.deleteOne({ Guild: targetGuildId, User: cleanUserId });
+                    }
+
+                    // 2. Fallback to OAuthVerify schema (/setup verify) if configured
+                    if (!targetRoleId) {
+                        const verifyConfig = await OAuthVerify.findOne({ guildId: targetGuildId, enabled: true });
+                        if (verifyConfig && verifyConfig.roleId) {
+                            targetRoleId = verifyConfig.roleId;
+                        }
+                    }
+
+                    if (targetRoleId) {
                         try {
                             const member = await guild.members.fetch(userId).catch(() => null);
                             if (member) {
-                                await member.roles.add(verifyConfig.roleId);
+                                await member.roles.add(targetRoleId);
                                 roleAssigned = true;
+
+                                // Send verification log if log channel is configured
+                                const channelLogId = client.config?.logchannel;
+                                const channelLog = channelLogId ? guild.channels.cache.get(channelLogId) : null;
+                                if (channelLog) {
+                                    const { EmbedBuilder } = require('discord.js');
+                                    const channelLogEmbed = new EmbedBuilder()
+                                        .setColor('Green')
+                                        .setTitle('✅ Member 2-Step Verified!')
+                                        .setDescription(`<@${userId}> (*${userProfile.username}*) completed Captcha and authorized with Backup Bot. <@&${targetRoleId}> role has been assigned!`)
+                                        .setTimestamp()
+                                        .setFooter({ text: '2-Step Verification Logs' });
+                                    channelLog.send({ embeds: [channelLogEmbed] }).catch(() => {});
+                                }
                             }
                         } catch (err) {
                             console.error(`Failed to assign role to ${userId} in ${targetGuildId}:`, err);
