@@ -32,6 +32,7 @@ module.exports = {
   clanManager: {
     guildId: process.env.CLAN_GUILD_ID || "",
     categoryId: process.env.CLAN_CATEGORY_ID || "",
-    staffRoleId: process.env.CLAN_STAFF_ROLE_ID || ""
+    staffRoleId: process.env.CLAN_STAFF_ROLE_ID || "",
+    memberRoleId: process.env.CLAN_MEMBER_ROLE_ID || ""
   }
 };

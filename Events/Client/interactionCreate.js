@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { MessageFlags, ActionRowBuilder } = require("discord.js");
 const Premium = require("../../Schemas/premiumUserSchema");
 const PremiumGuild = require("../../Schemas/premiumGuildSchema");
 
@@ -34,20 +35,34 @@ module.exports = {
                     });
                 }
 
+                // Disable review buttons immediately to prevent duplicate actions
+                try {
+                    const updatedComponents = interaction.message.components.map(row => {
+                        const builder = ActionRowBuilder.from(row);
+                        builder.components.forEach(c => c.setDisabled(true));
+                        return builder;
+                    });
+                    await interaction.update({ components: updatedComponents }).catch(() => {});
+                } catch (e) {}
+
                 if (isApprove) {
-                    // Assign staff role or member role if configured
-                    if (client.config.clanManager?.memberRoleId) {
-                        const targetMember = await interaction.guild.members.fetch(targetUserId).catch(() => null);
-                        if (targetMember) {
-                            await targetMember.roles.add(client.config.clanManager.memberRoleId).catch(() => null);
+                    let roleAssignedText = "";
+                    const targetMember = await interaction.guild.members.fetch(targetUserId).catch(() => null);
+                    if (targetMember) {
+                        const roleId = client.config.clanManager?.memberRoleId;
+                        const role = (roleId && interaction.guild.roles.cache.get(roleId))
+                            || interaction.guild.roles.cache.find(r => r.name.toLowerCase() === 'strikers' || r.name.toLowerCase().includes('striker'));
+                        if (role) {
+                            await targetMember.roles.add(role.id).catch(() => null);
+                            roleAssignedText = ` and received the **${role.name}** role`;
                         }
                     }
 
-                    await interaction.reply({
-                        content: `✅ <@${targetUserId}> has been **APPROVED** by <@${interaction.user.id}>! Channel will remain for records or can be closed.`
+                    await interaction.followUp({
+                        content: `✅ <@${targetUserId}> has been **APPROVED** by <@${interaction.user.id}>${roleAssignedText}! This channel will remain for records or can be closed.`
                     });
                 } else {
-                    await interaction.reply({
+                    await interaction.followUp({
                         content: `❌ <@${targetUserId}> has been **REJECTED** by <@${interaction.user.id}>. Channel closing in 10 seconds...`
                     });
                     setTimeout(async () => {
