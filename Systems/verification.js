@@ -44,7 +44,13 @@ module.exports = (client) => {
 
             // Function to generate the captcha image
             async function generateCaptchaImage(text) {
-                const { createCanvas } = require('canvas');
+                let createCanvas;
+                try {
+                    createCanvas = require('@napi-rs/canvas').createCanvas;
+                } catch (e) {
+                    createCanvas = require('canvas').createCanvas;
+                }
+
                 const canvas = createCanvas(450, 150);
                 const ctx = canvas.getContext('2d');
 
@@ -85,7 +91,7 @@ module.exports = (client) => {
                 }
                 ctx.stroke();
 
-                return canvas.toBuffer();
+                return canvas.toBuffer('image/png');
             }
 
             // Generate and send the captcha
@@ -132,8 +138,14 @@ module.exports = (client) => {
                         Key: captchaText,
                     });
                 })
-                .catch((error) => {
+                .catch(async (error) => {
                     console.error("An error occurred while generating the captcha:", error);
+                    if (!interaction.replied && !interaction.deferred) {
+                        await interaction.reply({
+                            content: "❌ An error occurred while generating your verification captcha. Please try again.",
+                            flags: MessageFlags.Ephemeral,
+                        }).catch(() => {});
+                    }
                 });
         } else if (interaction.customId === "captchaenter") {
             const vermodal = new ModalBuilder()
