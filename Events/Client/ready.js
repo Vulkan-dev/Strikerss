@@ -58,10 +58,14 @@ module.exports = {
         // Database connection with safeguards
         try {
             const dns = require('dns');
+            if (dns.setDefaultResultOrder) {
+                dns.setDefaultResultOrder('ipv4first');
+            }
             dns.setServers(['8.8.8.8', '1.1.1.1']);
             
             await mongoose.connect(mongodbURL, {
-                serverSelectionTimeoutMS: 10000
+                serverSelectionTimeoutMS: 10000,
+                family: 4
             });
             client.logs.success('[DATABASE] Connected to MongoDB successfully.');
         } catch (error) {

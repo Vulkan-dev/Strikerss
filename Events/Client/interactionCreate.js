@@ -1,12 +1,15 @@
-const { Interaction, EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, MessageFlags } = require("discord.js");
+const mongoose = require("mongoose");
 const Premium = require("../../Schemas/premiumUserSchema");
 const PremiumGuild = require("../../Schemas/premiumGuildSchema");
+
 const isUserPremium = async (userId) => {
-  const isPremium = await Premium.findOne({ id: userId });
+  if (mongoose.connection.readyState !== 1) return false;
+  const isPremium = await Premium.findOne({ id: userId }).catch(() => null);
   return isPremium && isPremium.isPremium;
 }
 const isGuildPremium = async (guildId) => {
-  const isPremium = await PremiumGuild.findOne({ id: guildId });
+  if (mongoose.connection.readyState !== 1) return false;
+  const isPremium = await PremiumGuild.findOne({ id: guildId }).catch(() => null);
   return isPremium && isPremium.isPremiumGuild;
 }
 const blacklistDB = require("../../Schemas/blacklistSchema");
@@ -90,9 +93,12 @@ module.exports = {
                 }); 
             }
         }
-        const userData = await blacklistDB.findOne({
-          userId: interaction.user.id,
-        });
+        let userData = null;
+        if (mongoose.connection.readyState === 1) {
+          userData = await blacklistDB.findOne({
+            userId: interaction.user.id,
+          }).catch(() => null);
+        }
 
         // Blacklist
         if (userData) {

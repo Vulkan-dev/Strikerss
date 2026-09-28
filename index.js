@@ -36,7 +36,10 @@ const dayjs = require('dayjs');
 const chalk = require('chalk');
 const dns = require('dns');
 
-// Fix SRV DNS resolution for MongoDB Atlas on Windows
+// Fix SRV DNS resolution for MongoDB Atlas on Windows & Railway (force IPv4)
+if (dns.setDefaultResultOrder) {
+  dns.setDefaultResultOrder('ipv4first');
+}
 dns.setServers(['8.8.8.8', '1.1.1.1']);
 
 const express = require('express');
