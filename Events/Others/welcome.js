@@ -31,36 +31,52 @@ module.exports = {
     let sendOptions = {};
 
     if (isImage) {
-      const card = new Card()
-        .setTitle("Welcome")
-        .setName(member.user.username)
-        .setAvatar(member.user.displayAvatarURL({ format: "png", dynamic: true }))
-        .setMessage(`You are the ${member.guild.memberCount}th to join`)
-        .setBackground(image)
-        .setColor("00FF38");
-      const cardOutput = await card.build();
-      sendOptions.files = [{ attachment: cardOutput, name: "welcome-card.png" }];
+      try {
+        const card = new Card()
+          .setTitle("Welcome")
+          .setName(member.user.username)
+          .setAvatar(member.user.displayAvatarURL({ format: "png", dynamic: true }))
+          .setMessage(`You are the ${member.guild.memberCount}th to join`)
+          .setBackground(image)
+          .setColor("00FF38");
+        const cardOutput = await card.build();
+        sendOptions.files = [{ attachment: cardOutput, name: "welcome-card.png" }];
+      } catch (imgErr) {
+        console.error("Failed to build welcome image card on member join:", imgErr);
+      }
     }
 
     if (isEmbed) {
-      const embed = new EmbedBuilder().setColor(color);
+      const embed = new EmbedBuilder();
+      try {
+        embed.setColor(color && color !== "Random" ? color : "#00f5d4");
+      } catch (e) {
+        embed.setColor("#00f5d4");
+      }
 
-      if (author) {
+      if (author && author.trim() !== "") {
         embed.setAuthor({ name: author });
       }
-      if (title) {
+      if (title && title.trim() !== "") {
         embed.setTitle(title);
       }
+      if (messageContent && messageContent.trim() !== "") {
+        embed.setDescription(messageContent);
+      } else if (!title && !author) {
+        embed.setDescription(`Welcome to **${member.guild.name}**, ${member.user}!`);
+      }
 
-      sendOptions.embeds = [embed];
-    }
-
-    if (messageContent) {
+      if (embed.data.title || embed.data.description || embed.data.author) {
+        sendOptions.embeds = [embed];
+      }
+    } else if (messageContent) {
       sendOptions.content = messageContent;
     }
 
     if (sendOptions.content || sendOptions.embeds || sendOptions.files) {
-      await channel.send(sendOptions);
+      await channel.send(sendOptions).catch((err) => {
+        console.error(`Failed to send welcome message in channel ${channel.id}:`, err.message);
+      });
     }
   },
 };

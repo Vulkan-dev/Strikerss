@@ -628,9 +628,34 @@ module.exports = {
           : null;
 
         const channel = i.guild.channels.cache.get(data.channelId);
-        if (!channel || !channel.permissionsFor(i.guild.members.me).has(PermissionsBitField.Flags.SendMessages)) {
+        if (!channel) {
           await i.followUp({
-            content: "The configured channel was not found or I lack permission to send messages there. Please reconfigure the welcome system.",
+            content: "The configured welcome channel was not found. Please reconfigure the channel.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        const botPerms = channel.permissionsFor(i.guild.members.me);
+        if (!botPerms || !botPerms.has(PermissionsBitField.Flags.SendMessages)) {
+          await i.followUp({
+            content: `I lack permission to **Send Messages** in <#${data.channelId}>. Please grant this permission in the channel settings.`,
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        if (isEmbed && !botPerms.has(PermissionsBitField.Flags.EmbedLinks)) {
+          await i.followUp({
+            content: `I lack permission to **Embed Links** in <#${data.channelId}>. Please grant 'Embed Links' permission in the channel settings.`,
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        if (isImage && !botPerms.has(PermissionsBitField.Flags.AttachFiles)) {
+          await i.followUp({
+            content: `I lack permission to **Attach Files** in <#${data.channelId}>. Please grant 'Attach Files' permission in the channel settings.`,
             flags: MessageFlags.Ephemeral,
           });
           return;
@@ -639,19 +664,28 @@ module.exports = {
         let sendOptions = {};
 
         if (isImage) {
-          const card = new Card()
-            .setTitle("Welcome")
-            .setName(i.user.username)
-            .setAvatar(i.user.displayAvatarURL({ format: "png", dynamic: true }))
-            .setMessage(`You are the ${i.guild.memberCount}th to join`)
-            .setBackground(image)
-            .setColor("00FF38");
-          const cardOutput = await card.build();
-          sendOptions.files = [{ attachment: cardOutput, name: "welcome-card.png" }];
+          try {
+            const card = new Card()
+              .setTitle("Welcome")
+              .setName(i.user.username)
+              .setAvatar(i.user.displayAvatarURL({ format: "png", dynamic: true }))
+              .setMessage(`You are the ${i.guild.memberCount}th to join`)
+              .setBackground(image)
+              .setColor("00FF38");
+            const cardOutput = await card.build();
+            sendOptions.files = [{ attachment: cardOutput, name: "welcome-card.png" }];
+          } catch (imgErr) {
+            console.error("Failed to build welcome card image:", imgErr);
+          }
         }
 
         if (isEmbed) {
-          const embed = new EmbedBuilder().setColor(color);
+          const embed = new EmbedBuilder();
+          try {
+            embed.setColor(color && color !== "Random" ? color : "#00f5d4");
+          } catch (e) {
+            embed.setColor("#00f5d4");
+          }
 
           if (author && author.trim() !== "") {
             embed.setAuthor({ name: author });
@@ -659,11 +693,17 @@ module.exports = {
           if (title && title.trim() !== "") {
             embed.setTitle(title);
           }
+          if (messageContent && messageContent.trim() !== "") {
+            embed.setDescription(messageContent);
+          } else if (!title && !author) {
+            embed.setDescription(`Welcome to **${i.guild.name}**, ${i.user}!`);
+          }
 
-          sendOptions.embeds = [embed];
-        }
-
-        if (messageContent) {
+          // Ensure embed is valid and has at least one content property
+          if (embed.data.title || embed.data.description || embed.data.author) {
+            sendOptions.embeds = [embed];
+          }
+        } else if (messageContent) {
           sendOptions.content = messageContent;
         }
 
@@ -671,18 +711,19 @@ module.exports = {
           try {
             await channel.send(sendOptions);
             await i.followUp({
-              content: `Test welcome message sent to <#${data.channelId}>!`,
+              content: `✅ Test welcome message successfully sent to <#${data.channelId}>!`,
               flags: MessageFlags.Ephemeral,
             });
           } catch (error) {
+            console.error("Failed to send test welcome message:", error);
             await i.followUp({
-              content: "Failed to send the test message. Please ensure the bot has permission to send messages in the configured channel.",
+              content: `Failed to send test message: \`${error.message}\`. Please ensure the bot has **Send Messages**, **Embed Links**, and **Attach Files** permissions in <#${data.channelId}>.`,
               flags: MessageFlags.Ephemeral,
             });
           }
         } else {
           await i.followUp({
-            content: "No message, embed, or image is configured to send.",
+            content: "No message, embed, or image is configured to send. Please set a message or welcome image first.",
             flags: MessageFlags.Ephemeral,
           });
         }
