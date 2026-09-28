@@ -18,9 +18,7 @@ const {
   GatewayIntentBits, 
   EmbedBuilder, 
   PermissionsBitField, 
-  Permissions, 
   MessageManager, 
-  Embed, 
   Collection, 
   Partials, 
   Events, 
@@ -123,7 +121,7 @@ const commandFolders = fs.readdirSync('./Commands');
 // -------------------------------
 // Bot Status System
 // -------------------------------
-client.on('ready', async (client) => {
+client.on(Events.ClientReady, async (client) => {
   try {
     setInterval(() => {
       let activities = [
@@ -151,7 +149,7 @@ client.on('ready', async (client) => {
   }
 });
 
-client.on('ready', () => {
+client.on(Events.ClientReady, () => {
   try {
     client.user.setStatus(client.config.status);
     client.logs.success(`[STATUS] Bot status loaded as ${client.config.status}.`);

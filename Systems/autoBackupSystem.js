@@ -1,4 +1,5 @@
 const cron = require('node-cron');
+const { Events } = require('discord.js');
 const BackupSchema = require('../Schemas/backupSchema');
 const { createGuildBackupData, cleanRollingAutoBackups, retryOperation } = require('../Utils/backupUtils');
 
@@ -70,7 +71,7 @@ module.exports = (client) => {
     });
 
     // Also run an initial check when bot starts up (after 10s delay to allow guilds to cache)
-    client.once('ready', () => {
+    client.once(Events.ClientReady, () => {
         setTimeout(async () => {
             if (client.config.autoBackup?.enabled !== false) {
                 await runAutoBackupRoutine();

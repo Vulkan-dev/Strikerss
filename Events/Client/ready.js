@@ -40,8 +40,10 @@ for (const varName of requiredEnvVars) {
     }
 }
 
+const { Events } = require('discord.js');
+
 module.exports = {
-    name: 'ready',
+    name: Events.ClientReady,
     once: true,
     async execute(client) {
         client.logs.success(`[BOT] Logged in as ${client.user.tag}!`);

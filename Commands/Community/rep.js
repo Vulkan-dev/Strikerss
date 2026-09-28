@@ -1,5 +1,5 @@
 const { SlashCommandBuilder } = require("@discordjs/builders");
-const { EmbedBuilder } = require("discord.js");
+const { EmbedBuilder, MessageFlags } = require("discord.js");
 const Reputation = require('../../Schemas/Reputation');
 
 module.exports = {
@@ -35,7 +35,7 @@ module.exports = {
     const ratingStars = "⭐".repeat(rating);
 
     if (user.id === interaction.user.id) {
-      return await interaction.reply({ content: "You cannot give yourself a rep.", ephemeral: true });
+      return await interaction.reply({ content: "You cannot give yourself a rep.", flags: MessageFlags.Ephemeral });
     }
 
     try {
@@ -66,7 +66,11 @@ module.exports = {
       await interaction.reply({ embeds: [embed] });
     } catch (err) {
       console.error(err);
-      await interaction.reply({ content: "An error occurred while processing your request.", ephemeral: true });
+      if (interaction.replied || interaction.deferred) {
+        await interaction.followUp({ content: "An error occurred while processing your request.", flags: MessageFlags.Ephemeral }).catch(() => {});
+      } else {
+        await interaction.reply({ content: "An error occurred while processing your request.", flags: MessageFlags.Ephemeral }).catch(() => {});
+      }
     }
   },
 };

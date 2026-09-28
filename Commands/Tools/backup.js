@@ -142,10 +142,14 @@ async function handleCreateBackup(interaction, state) {
 
         await BackupSchema.deleteMany({ guildId: interaction.guild.id, createdAt: { $lt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } });
 
-        await interaction.reply({ content: 'Server backup created successfully!', embeds: [serverInfo], ephemeral: false });
+        await interaction.reply({ content: 'Server backup created successfully!', embeds: [serverInfo] });
     } catch (error) {
         console.error(`Create Backup Error [Guild: ${interaction.guild.id}, State: ${state}, User: ${interaction.user.id}]:`, error);
-        await interaction.reply({ content: 'Failed to create backup. Please try again later.', flags: MessageFlags.Ephemeral });
+        if (interaction.replied || interaction.deferred) {
+            await interaction.followUp({ content: 'Failed to create backup. Please try again later.', flags: MessageFlags.Ephemeral }).catch(() => {});
+        } else {
+            await interaction.reply({ content: 'Failed to create backup. Please try again later.', flags: MessageFlags.Ephemeral }).catch(() => {});
+        }
     }
 }
 
@@ -401,10 +405,14 @@ async function handleListBackups(interaction, state) {
             });
         });
 
-        await interaction.reply({ embeds: [embed], ephemeral: false });
+        await interaction.reply({ embeds: [embed] });
     } catch (error) {
         console.error(`List Backups Error [Guild: ${interaction.guild.id}, State: ${state}]:`, error);
-        await interaction.reply({ content: 'Failed to list backups.', flags: MessageFlags.Ephemeral });
+        if (interaction.replied || interaction.deferred) {
+            await interaction.followUp({ content: 'Failed to list backups.', flags: MessageFlags.Ephemeral }).catch(() => {});
+        } else {
+            await interaction.reply({ content: 'Failed to list backups.', flags: MessageFlags.Ephemeral }).catch(() => {});
+        }
     }
 }
 

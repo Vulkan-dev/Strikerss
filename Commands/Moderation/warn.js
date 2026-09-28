@@ -2,6 +2,7 @@ const {
   SlashCommandBuilder,
   PermissionsBitField,
   EmbedBuilder,
+  MessageFlags,
 } = require("discord.js");
 const warningSchema = require("../../Schemas/warnSchema");
 
@@ -59,7 +60,7 @@ module.exports = {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.KickMembers)) {
           return await interaction.reply({
             content: "You don't have permission to warn people!",
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -67,7 +68,7 @@ module.exports = {
         if (target.id === user.id) {
           return await interaction.reply({
             content: "You cannot warn yourself!",
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -76,7 +77,7 @@ module.exports = {
         if (!targetMember) {
           return await interaction.reply({
             content: "The specified user is not a member of this server!",
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -84,7 +85,7 @@ module.exports = {
         if (targetMember.id === guild.ownerId) {
           return await interaction.reply({
             content: "You cannot warn the server owner!",
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -92,7 +93,7 @@ module.exports = {
         if (targetMember.roles.highest.position >= interaction.member.roles.highest.position) {
           return await interaction.reply({
             content: "You cannot warn someone with a higher or equal role!",
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -148,7 +149,7 @@ module.exports = {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.KickMembers)) {
           return await interaction.reply({
             content: "You don't have permission to clear people's warnings!",
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -175,7 +176,7 @@ module.exports = {
         } else {
           await interaction.reply({
             content: `${target.tag} has no warnings to be cleared`,
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
       }
@@ -217,10 +218,17 @@ module.exports = {
       }
     } catch (err) {
       console.error(err);
-      await interaction.reply({
-        content: "An error occurred while processing the command.",
-        ephemeral: true,
-      });
+      if (interaction.replied || interaction.deferred) {
+        await interaction.followUp({
+          content: "An error occurred while processing the command.",
+          flags: MessageFlags.Ephemeral,
+        }).catch(() => {});
+      } else {
+        await interaction.reply({
+          content: "An error occurred while processing the command.",
+          flags: MessageFlags.Ephemeral,
+        }).catch(() => {});
+      }
     }
   },
 };

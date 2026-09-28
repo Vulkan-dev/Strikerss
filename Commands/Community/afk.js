@@ -67,7 +67,6 @@ module.exports = {
 
           await interaction.reply({
             content: `> ${client.emoji.tick} You are now AFK within this server! | Reason: **${message}**`,
-            ephemeral: false,
           });
         }
         break;
