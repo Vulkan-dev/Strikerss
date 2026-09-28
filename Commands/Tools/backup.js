@@ -452,7 +452,18 @@ async function restoreChannels(guild, serverData, roleMap, catMap) {
     for (const chData of sortedChannels) {
         try {
             const permOverwrites = buildPermOverwrites(guild, roleMap, chData.permissions || []);
-            const parentId = chData.parentCategoryName ? catMap[chData.parentCategoryName] : null;
+
+            // v2.0: parentCategoryName stored directly on channel
+            // v1.0: no parentCategoryName — must search categories array for one that lists this channel
+            let parentCategoryName = chData.parentCategoryName || null;
+            if (!parentCategoryName && serverData.categories?.length) {
+                const owningCat = serverData.categories.find(cat => {
+                    const list = cat.channelNames || cat.channels || [];
+                    return list.includes(chData.name);
+                });
+                parentCategoryName = owningCat?.name || null;
+            }
+            const parentId = parentCategoryName ? (catMap[parentCategoryName] || null) : null;
 
             const options = {
                 name: chData.name,
