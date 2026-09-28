@@ -225,7 +225,10 @@ module.exports = (client) => {
             // Generate OAuth link for Step 2
             const clientId = process.env.clientId;
             const port = process.env.PORT || client.config.oauth?.port || 3000;
-            const redirectUri = process.env.REDIRECT_URI || client.config.oauth?.redirectUri || `http://localhost:${port}/api/auth/callback`;
+            const railwayDomain = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL;
+            const redirectUri = process.env.REDIRECT_URI
+                || (railwayDomain ? `https://${railwayDomain}/api/auth/callback` : null)
+                || `http://localhost:${port}/api/auth/callback`;
             const state = `${interaction.guild.id}_${interaction.user.id}`;
             const authUrl = `https://discord.com/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=identify%20guilds.join&state=${state}`;
 

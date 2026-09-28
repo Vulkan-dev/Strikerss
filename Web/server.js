@@ -8,7 +8,18 @@ const { exchangeCode, fetchUserProfile } = require('./oauthHelper');
 function initOAuthServer(client) {
     const app = express();
     const port = process.env.PORT || client.config.oauth?.port || 3000;
-    const redirectUri = process.env.REDIRECT_URI || client.config.oauth?.redirectUri || `http://localhost:${port}/api/auth/callback`;
+
+    // Auto-detect redirect URI: explicit env → Railway domain → localhost fallback
+    const railwayDomain = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL;
+    const redirectUri = process.env.REDIRECT_URI
+        || (railwayDomain ? `https://${railwayDomain}/api/auth/callback` : null)
+        || `http://localhost:${port}/api/auth/callback`;
+
+    // Warn if falling back to localhost (OAuth won't work in production)
+    if (redirectUri.startsWith('http://localhost')) {
+        console.warn('[OAUTH] ⚠️  REDIRECT_URI is set to localhost! OAuth will not work in production.');
+        console.warn('[OAUTH] ⚠️  Set REDIRECT_URI=https://<your-railway-domain>/api/auth/callback in Railway variables.');
+    }
 
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));

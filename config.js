@@ -17,7 +17,9 @@ module.exports = {
   // Member Restorer (OAuth2)
   oauth: {
     port: process.env.PORT || 3000,
-    redirectUri: process.env.REDIRECT_URI || "http://localhost:3000/api/auth/callback",
+    redirectUri: process.env.REDIRECT_URI
+      || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}/api/auth/callback` : null)
+      || `http://localhost:${process.env.PORT || 3000}/api/auth/callback`,
     scopes: ["identify", "guilds.join"]
   },
 
