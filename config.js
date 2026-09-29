@@ -35,6 +35,7 @@ module.exports = {
     guildId: process.env.CLAN_GUILD_ID || "",
     categoryId: process.env.CLAN_CATEGORY_ID || "",
     staffRoleId: process.env.CLAN_STAFF_ROLE_ID || "",
-    memberRoleId: process.env.CLAN_MEMBER_ROLE_ID || ""
+    memberRoleId: process.env.CLAN_MEMBER_ROLE_ID || "",
+    verifiedRoleId: process.env.VERIFIED_ROLE_ID || "1554580539082809490"
   }
 };

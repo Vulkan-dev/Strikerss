@@ -89,6 +89,31 @@ module.exports = {
             await connectWithRetry();
         }
 
+        // Auto-sync Verification schema for server
+        try {
+            const VerificationSchema = require('../../Schemas/verificationSchema');
+            const targetGuild = client.guilds.cache.get('1553407415523999824');
+            if (targetGuild) {
+                const verifiedRole = targetGuild.roles.cache.find(r => r.name === 'Verified');
+                const verifyChannel = targetGuild.channels.cache.get('1554194429017985204');
+                if (verifiedRole && verifyChannel) {
+                    await VerificationSchema.findOneAndUpdate(
+                        { Guild: targetGuild.id },
+                        {
+                            Guild: targetGuild.id,
+                            Channel: verifyChannel.id,
+                            Role: verifiedRole.id,
+                            MessageContent: 'Complete the Captcha and verify with Discord to get full access to the server!'
+                        },
+                        { upsert: true }
+                    );
+                    client.logs.success('[VERIFY] Successfully synced Captcha Verification Schema with Verified role.');
+                }
+            }
+        } catch (err) {
+            console.error('[VERIFY SYNC ERROR]:', err.message);
+        }
+
         require('events').EventEmitter.defaultMaxListeners = config.eventListeners;
     },
 };

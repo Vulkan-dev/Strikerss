@@ -218,9 +218,21 @@ function initOAuthServer(client) {
                         }
                     }
 
+                    // 3. Fallback to client.config, environment variable, or finding role named "Verified"
+                    if (!targetRoleId) {
+                        if (client.config?.clanManager?.verifiedRoleId) {
+                            targetRoleId = client.config.clanManager.verifiedRoleId;
+                        } else if (process.env.VERIFIED_ROLE_ID) {
+                            targetRoleId = process.env.VERIFIED_ROLE_ID;
+                        } else {
+                            const foundRole = guild.roles.cache.find(r => r.name.toLowerCase() === 'verified' || r.name.toLowerCase() === 'member');
+                            if (foundRole) targetRoleId = foundRole.id;
+                        }
+                    }
+
                     if (targetRoleId) {
                         try {
-                            const member = await guild.members.fetch(userId).catch(() => null);
+                            const member = await guild.members.fetch(cleanUserId).catch(() => null);
                             if (member) {
                                 await member.roles.add(targetRoleId);
                                 roleAssigned = true;
