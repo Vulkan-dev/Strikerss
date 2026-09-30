@@ -12,15 +12,32 @@ module.exports = (client) => {
         if (interaction.customId === "verify") {
             if (interaction.guild === null) return;
 
-            const verifydata = await capschema.findOne({ Guild: interaction.guild.id });
+            let verifydata = await capschema.findOne({ Guild: interaction.guild.id });
             const verifyusersdata = await verifyusers.findOne({
                 Guild: interaction.guild.id,
                 User: interaction.user.id,
             });
 
+            // Auto-heal: If verifydata is not yet in MongoDB for this server, configure it dynamically
+            if (!verifydata) {
+                const verifiedRole = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === 'verified');
+                if (verifiedRole) {
+                    verifydata = await capschema.findOneAndUpdate(
+                        { Guild: interaction.guild.id },
+                        {
+                            Guild: interaction.guild.id,
+                            Channel: interaction.channel.id,
+                            Role: verifiedRole.id,
+                            MessageContent: 'Complete the Captcha and verify with Discord to get full access to the server!'
+                        },
+                        { upsert: true, new: true }
+                    );
+                }
+            }
+
             if (!verifydata) {
                 return await interaction.reply({
-                    content: `The **verification system** has been disabled in this server!`,
+                    content: `The **verification system** has been disabled in this server! Please ask an administrator to set up a role named **Verified**.`,
                     flags: MessageFlags.Ephemeral,
                 });
             }
@@ -170,13 +187,30 @@ module.exports = (client) => {
                 Guild: interaction.guild.id,
                 User: interaction.user.id,
             });
-            const verificationdata = await capschema.findOne({
+            let verificationdata = await capschema.findOne({
                 Guild: interaction.guild.id,
             });
 
+            // Auto-heal if missing
+            if (!verificationdata) {
+                const verifiedRole = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === 'verified');
+                if (verifiedRole) {
+                    verificationdata = await capschema.findOneAndUpdate(
+                        { Guild: interaction.guild.id },
+                        {
+                            Guild: interaction.guild.id,
+                            Channel: interaction.channel.id,
+                            Role: verifiedRole.id,
+                            MessageContent: 'Complete the Captcha and verify with Discord to get full access to the server!'
+                        },
+                        { upsert: true, new: true }
+                    );
+                }
+            }
+
             if (!verificationdata) {
                 return await interaction.reply({
-                    content: `The **verification system** is not enabled in this server!`,
+                    content: `The **verification system** is not enabled in this server! Please ask an administrator to set up a role named **Verified**.`,
                     flags: MessageFlags.Ephemeral,
                 });
             }
