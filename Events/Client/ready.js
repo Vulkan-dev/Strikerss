@@ -89,25 +89,24 @@ module.exports = {
             await connectWithRetry();
         }
 
-        // Auto-sync Verification schema for server
+        // Auto-sync Verification schema for all server(s) where bot is present
         try {
             const VerificationSchema = require('../../Schemas/verificationSchema');
-            const targetGuild = client.guilds.cache.get('1553407415523999824');
-            if (targetGuild) {
-                const verifiedRole = targetGuild.roles.cache.find(r => r.name === 'Verified');
-                const verifyChannel = targetGuild.channels.cache.get('1554194429017985204');
+            for (const guild of client.guilds.cache.values()) {
+                const verifiedRole = guild.roles.cache.find(r => r.name === 'Verified');
+                const verifyChannel = guild.channels.cache.find(c => c.name.includes('verify'));
                 if (verifiedRole && verifyChannel) {
                     await VerificationSchema.findOneAndUpdate(
-                        { Guild: targetGuild.id },
+                        { Guild: guild.id },
                         {
-                            Guild: targetGuild.id,
+                            Guild: guild.id,
                             Channel: verifyChannel.id,
                             Role: verifiedRole.id,
                             MessageContent: 'Complete the Captcha and verify with Discord to get full access to the server!'
                         },
                         { upsert: true }
                     );
-                    client.logs.success('[VERIFY] Successfully synced Captcha Verification Schema with Verified role.');
+                    client.logs.success(`[VERIFY] Synced Captcha Verification Schema for guild "${guild.name}" (${guild.id}).`);
                 }
             }
         } catch (err) {
