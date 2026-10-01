@@ -466,11 +466,13 @@ async function restoreRoles(guild, serverData) {
         try {
             const options = {
                 name: roleData.name,
-                color: roleData.color || null,
                 permissions: roleData.permissions || [],
                 hoist: roleData.hoist || false,
                 mentionable: roleData.mentionable || false,
             };
+            if (typeof roleData.color === 'number' && roleData.color > 0) {
+                options.color = roleData.color;
+            }
             // Icon requires ROLE_ICONS feature
             if (roleData.icon && guild.features?.includes('ROLE_ICONS')) {
                 options.icon = roleData.icon;
