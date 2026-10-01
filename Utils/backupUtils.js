@@ -155,7 +155,7 @@ async function createGuildBackupData(guild) {
             .filter(m => m.roles.length > 0);
 
         // Emojis
-        const emojis = guild.emojis.cache.map(e => ({ name: e.name, url: e.url }));
+        const emojis = guild.emojis.cache.map(e => ({ name: e.name, url: (typeof e.imageURL === 'function' ? e.imageURL() : e.url) }));
 
         // Stickers
         const stickers = guild.stickers
