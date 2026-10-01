@@ -10,7 +10,7 @@ const {
     MessageFlags
 } = require('discord.js');
 const BackupSchema = require('../../Schemas/backupSchema');
-const { createGuildBackupData, retryOperation } = require('../../Utils/backupUtils');
+const { generateBackupId, createGuildBackupData, retryOperation } = require('../../Utils/backupUtils');
 
 // Schemas needed for restore
 const WelcomeSchema      = require('../../Schemas/welcomeMessageSchema');
@@ -25,7 +25,7 @@ const BoosterSchema      = require('../../Schemas/boosterChannel');
 const StaffRoleSchema    = require('../../Schemas/staffrole');
 const JoinPingSchema     = require('../../Schemas/joinping');
 
-const maxStates = 5;
+const maxStates = 10;
 const rateLimit = new Map();
 
 async function hasRequiredPermissions(interaction) {
@@ -46,39 +46,52 @@ function sleep(ms) {
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('backup')
-        .setDescription('Manage server backups')
+        .setDescription('Manage server backups (Xenon Engine)')
         .addSubcommand(subcommand =>
             subcommand
                 .setName('create')
-                .setDescription('Creates a full backup of the server (structure + bot setups + member roles).')
+                .setDescription('Creates a full Xenon backup of the server (structure, roles, bot setups, emojis).')
                 .addStringOption(option =>
-                    option.setName('state').setDescription('State name (Default: latest).').setRequired(false))
-        )
-        .addSubcommand(subcommand =>
-            subcommand
-                .setName('list')
-                .setDescription('Lists all backups for this server.')
-        )
-        .addSubcommand(subcommand =>
-            subcommand
-                .setName('auto-status')
-                .setDescription('View status of automated 24-hour rolling backups.')
+                    option.setName('state').setDescription('Custom name/state (Default: latest).').setRequired(false))
         )
         .addSubcommand(subcommand =>
             subcommand
                 .setName('restore')
-                .setDescription('Restores a backup of the server.')
+                .setDescription('Restores a backup onto this server (supports cross-server restore).')
                 .addStringOption(option =>
-                    option.setName('state').setDescription('State to restore from.').setRequired(false))
+                    option.setName('backup_id').setDescription('Unique Backup ID (e.g. XENON-XXXXXXXX) to restore from any server.').setRequired(false))
+                .addStringOption(option =>
+                    option.setName('server_id').setDescription('Source Server ID to pull backup from.').setRequired(false))
+                .addStringOption(option =>
+                    option.setName('state').setDescription('State name (Default: latest).').setRequired(false))
                 .addStringOption(option =>
                     option.setName('scope').setDescription('What to restore.').setRequired(false)
                         .addChoices(
-                            { name: 'All', value: 'all' },
+                            { name: 'All (Everything)', value: 'all' },
                             { name: 'Channels & Categories', value: 'channels' },
                             { name: 'Roles & Member Roles', value: 'roles' },
                             { name: 'Emojis', value: 'emojis' },
                             { name: 'Bot Setups Only', value: 'configs' }
                         ))
+        )
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('info')
+                .setDescription('Get detailed information about a backup by its ID.')
+                .addStringOption(option =>
+                    option.setName('backup_id').setDescription('Unique Backup ID (e.g. XENON-XXXXXXXX)').setRequired(true))
+        )
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('list')
+                .setDescription('Lists all backups for this server or a specific server.')
+                .addStringOption(option =>
+                    option.setName('server_id').setDescription('Server ID to view backups for (Default: this server).').setRequired(false))
+        )
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('auto-status')
+                .setDescription('View status of automated 24-hour rolling backups.')
         ),
     async execute(interaction) {
         try {
@@ -87,20 +100,27 @@ module.exports = {
             }
 
             const subcommand = interaction.options.getSubcommand();
-            const state = interaction.options.getString('state') || 'latest';
-
-            if (!validateState(state)) {
-                return interaction.reply({ content: 'Invalid state name. Use alphanumeric characters, dashes, and underscores (max 35).', flags: MessageFlags.Ephemeral });
-            }
 
             if (subcommand === 'create') {
+                const state = interaction.options.getString('state') || 'latest';
+                if (!validateState(state)) {
+                    return interaction.reply({ content: 'Invalid state name. Use alphanumeric characters, dashes, and underscores (max 35).', flags: MessageFlags.Ephemeral });
+                }
                 await handleCreateBackup(interaction, state);
+            } else if (subcommand === 'restore') {
+                const backupId = interaction.options.getString('backup_id');
+                const serverId = interaction.options.getString('server_id');
+                const state = interaction.options.getString('state') || 'latest';
+                const scope = interaction.options.getString('scope') || 'all';
+                await handleRestoreBackup(interaction, backupId, serverId, state, scope);
+            } else if (subcommand === 'info') {
+                const backupId = interaction.options.getString('backup_id');
+                await handleInfoBackup(interaction, backupId);
             } else if (subcommand === 'list') {
-                await handleListBackups(interaction);
+                const serverId = interaction.options.getString('server_id');
+                await handleListBackups(interaction, serverId);
             } else if (subcommand === 'auto-status') {
                 await handleAutoStatus(interaction);
-            } else if (subcommand === 'restore') {
-                await handleRestoreBackup(interaction, state, interaction.options.getString('scope') || 'all');
             }
         } catch (error) {
             console.error(`[BACKUP] Execute Error [Guild: ${interaction.guild.id}]:`, error);
@@ -128,13 +148,14 @@ async function handleCreateBackup(interaction, state) {
         }
         rateLimit.set(rateLimitKey, now);
 
-        await interaction.reply({ content: '⏳ Creating full backup (fetching all members, reading configs)...', flags: MessageFlags.Ephemeral });
+        await interaction.reply({ content: '⏳ Creating full Xenon backup (structure, roles, bot setups, member roles)...', flags: MessageFlags.Ephemeral });
 
         const serverDataString = await createGuildBackupData(interaction.guild);
         const serverData = JSON.parse(serverDataString);
         const size = Buffer.byteLength(serverDataString, 'utf8');
+        const backupId = generateBackupId();
 
-        // Prune old backups
+        // Prune old backups for this guild
         const guildBackups = await BackupSchema.find({ guildId: interaction.guild.id });
         if (guildBackups.length >= maxStates) {
             const latestIndex = guildBackups.findIndex(b => b.state === 'latest');
@@ -145,15 +166,26 @@ async function handleCreateBackup(interaction, state) {
         }
 
         const existingBackup = await BackupSchema.findOne({ guildId: interaction.guild.id, state });
+        let effectiveBackupId = backupId;
         if (existingBackup) {
+            effectiveBackupId = existingBackup.backupId || backupId;
             await retryOperation(() => BackupSchema.updateOne(
                 { guildId: interaction.guild.id, state },
-                { data: serverDataString, creatorId: interaction.user.id, size, updatedAt: new Date() }
+                {
+                    backupId: effectiveBackupId,
+                    guildName: interaction.guild.name,
+                    data: serverDataString,
+                    creatorId: interaction.user.id,
+                    size,
+                    updatedAt: new Date()
+                }
             ));
         } else {
             await retryOperation(() => BackupSchema.create({
+                backupId: effectiveBackupId,
                 data: serverDataString,
                 guildId: interaction.guild.id,
+                guildName: interaction.guild.name,
                 state,
                 creatorId: interaction.user.id,
                 size,
@@ -167,9 +199,11 @@ async function handleCreateBackup(interaction, state) {
 
         const configsStored = Object.keys(serverData.botConfigs || {}).join(', ') || 'none';
         const embed = new EmbedBuilder()
-            .setTitle('✅ Server Backup Created')
+            .setTitle('✅ Xenon Server Backup Created')
             .setColor('#80b918')
+            .setDescription(`Full server snapshot taken and saved to cloud database.\n\n**Backup ID:** \`${effectiveBackupId}\`\n*This Backup ID can be restored on ANY server!*`)
             .addFields(
+                { name: 'Backup ID', value: `\`${effectiveBackupId}\``, inline: true },
                 { name: 'State', value: `\`${state}\``, inline: true },
                 { name: 'Size', value: `${(size / 1024).toFixed(2)} KB`, inline: true },
                 { name: 'Schema', value: serverData.schemaVersion, inline: true },
@@ -178,8 +212,10 @@ async function handleCreateBackup(interaction, state) {
                 { name: 'Roles', value: `${serverData.roles?.length || 0}`, inline: true },
                 { name: 'Members w/ Roles', value: `${serverData.members?.length || 0}`, inline: true },
                 { name: 'Emojis', value: `${serverData.emojis?.length || 0}`, inline: true },
-                { name: 'Bot Configs Stored', value: configsStored || 'none' }
+                { name: 'Bot Configs Stored', value: configsStored || 'none' },
+                { name: 'Cross-Server Restore Command', value: `\`/backup restore backup_id:${effectiveBackupId}\``, inline: false }
             )
+            .setFooter({ text: 'Xenon Cross-Server Engine' })
             .setTimestamp();
 
         await interaction.editReply({ content: '', embeds: [embed], flags: MessageFlags.Ephemeral });
@@ -195,7 +231,7 @@ async function handleCreateBackup(interaction, state) {
 
 // ─── RESTORE ─────────────────────────────────────────────────────────────────
 
-async function handleRestoreBackup(interaction, state, scope) {
+async function handleRestoreBackup(interaction, backupId, serverId, state, scope) {
     try {
         if (!(await hasRequiredPermissions(interaction))) {
             return interaction.reply({ content: 'You need Administrator, Manage Server, or BackupAdmin role.', flags: MessageFlags.Ephemeral });
@@ -206,9 +242,28 @@ async function handleRestoreBackup(interaction, state, scope) {
             return interaction.reply({ content: 'Please wait 5 minutes before restoring another backup.', flags: MessageFlags.Ephemeral });
         }
 
-        const backup = await BackupSchema.findOne({ guildId: interaction.guild.id, state });
-        if (!backup) {
-            return interaction.reply({ content: `No backup found for state: \`${state}\`. Use \`/backup list\` to see available backups.`, flags: MessageFlags.Ephemeral });
+        let backup = null;
+
+        if (backupId) {
+            const cleanId = backupId.trim();
+            backup = await BackupSchema.findOne({ backupId: cleanId }) ||
+                     await BackupSchema.findOne({ backupId: new RegExp('^' + cleanId + '$', 'i') });
+            if (!backup) {
+                return interaction.reply({ content: `❌ No backup found with ID: \`${cleanId}\`.`, flags: MessageFlags.Ephemeral });
+            }
+        } else if (serverId) {
+            const cleanServer = serverId.trim();
+            backup = await BackupSchema.findOne({ guildId: cleanServer, state: state || 'latest' }) ||
+                     await BackupSchema.findOne({ guildId: cleanServer }).sort({ createdAt: -1 });
+            if (!backup) {
+                return interaction.reply({ content: `❌ No backup found for server: \`${cleanServer}\`.`, flags: MessageFlags.Ephemeral });
+            }
+        } else {
+            backup = await BackupSchema.findOne({ guildId: interaction.guild.id, state: state || 'latest' }) ||
+                     await BackupSchema.findOne({ guildId: interaction.guild.id }).sort({ createdAt: -1 });
+            if (!backup) {
+                return interaction.reply({ content: `❌ No backup found for state: \`${state || 'latest'}\`. Use \`/backup list\` to see available backups or specify \`backup_id\`.`, flags: MessageFlags.Ephemeral });
+            }
         }
 
         const serverData = JSON.parse(backup.data);
@@ -221,8 +276,16 @@ async function handleRestoreBackup(interaction, state, scope) {
         const cancelButton  = new ButtonBuilder().setCustomId('cancel_restore').setLabel('Cancel').setStyle(ButtonStyle.Secondary);
         const row = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
 
+        const sourceGuildName = backup.guildName || serverData.guildInfo?.name || backup.guildId;
+        const backupIdDisplay = backup.backupId ? `\`${backup.backupId}\`` : `State: \`${backup.state}\``;
+
         await interaction.reply({
-            content: `⚠️ **Restore \`${state}\`?**\nThis will restore **${scopeLabel}**.\nBackup from: <t:${Math.floor(new Date(backup.createdAt).getTime() / 1000)}:R>\n\n**This cannot be undone. Confirm?**`,
+            content: `⚠️ **Restore Backup ${backupIdDisplay}?**\n` +
+                     `> Source Server: **${sourceGuildName}** (\`${backup.guildId}\`)\n` +
+                     `> Target Server: **${interaction.guild.name}** (\`${interaction.guild.id}\`)\n` +
+                     `> Restoring: **${scopeLabel}**\n` +
+                     `> Backup Created: <t:${Math.floor(new Date(backup.createdAt).getTime() / 1000)}:R>\n\n` +
+                     `**WARNING: This will wipe and rebuild existing server structure & configurations. Confirm?**`,
             components: [row],
             flags: MessageFlags.Ephemeral
         });
@@ -253,7 +316,37 @@ async function handleRestoreBackup(interaction, state, scope) {
                     log.push('✅ Roles wiped');
                 }
 
-                // ── PHASE 2: ROLES FIRST (channels need them for perms) ────
+                // ── PHASE 2: GUILD SETTINGS ────────────────────────────────
+                if (scope === 'all') {
+                    try {
+                        const gi = serverData.guildInfo;
+                        if (gi) {
+                            if (gi.name && interaction.guild.name !== gi.name) {
+                                await interaction.guild.setName(gi.name).catch(() => {});
+                            }
+                            if (gi.verificationLevel !== undefined) {
+                                await interaction.guild.setVerificationLevel(gi.verificationLevel).catch(() => {});
+                            }
+                            if (gi.defaultMessageNotifications !== undefined) {
+                                await interaction.guild.setDefaultMessageNotifications(gi.defaultMessageNotifications).catch(() => {});
+                            }
+                            if (gi.explicitContentFilter !== undefined) {
+                                await interaction.guild.setExplicitContentFilter(gi.explicitContentFilter).catch(() => {});
+                            }
+                            if (gi.everyonePermissions && interaction.guild.roles.everyone) {
+                                await interaction.guild.roles.everyone.setPermissions(gi.everyonePermissions).catch(() => {});
+                            }
+                            if (gi.icon) {
+                                await interaction.guild.setIcon(gi.icon).catch(() => {});
+                            }
+                            log.push('✅ Guild settings restored');
+                        }
+                    } catch (e) {
+                        warnings.push(`Guild settings: ${e.message}`);
+                    }
+                }
+
+                // ── PHASE 3: ROLES FIRST (channels need them for perms) ────
                 const roleMap = {}; // roleName -> new role ID
                 if (scope === 'all' || scope === 'roles') {
                     const result = await restoreRoles(interaction.guild, serverData);
@@ -265,21 +358,21 @@ async function handleRestoreBackup(interaction, state, scope) {
                     interaction.guild.roles.cache.forEach(r => { roleMap[r.name] = r.id; });
                 }
 
-                // ── PHASE 3: CHANNELS & CATEGORIES ────────────────────────
+                // ── PHASE 4: CHANNELS & CATEGORIES ────────────────────────
                 if (scope === 'all' || scope === 'channels') {
                     const catMap = await restoreCategories(interaction.guild, serverData, roleMap);
                     await restoreChannels(interaction.guild, serverData, roleMap, catMap);
                     log.push(`✅ Categories & channels restored (${serverData.categories?.length || 0} cats, ${serverData.channels?.length || 0} channels)`);
                 }
 
-                // ── PHASE 4: MEMBER ROLE ASSIGNMENTS ──────────────────────
+                // ── PHASE 5: MEMBER ROLE ASSIGNMENTS ──────────────────────
                 if (scope === 'all' || scope === 'roles') {
                     const memberResult = await restoreMemberRoles(interaction.guild, serverData, roleMap);
                     log.push(`✅ Member roles assigned (${memberResult.assigned} members)`);
                     if (memberResult.skipped > 0) warnings.push(`${memberResult.skipped} members not found (left server)`);
                 }
 
-                // ── PHASE 5: EMOJIS ───────────────────────────────────────
+                // ── PHASE 6: EMOJIS ───────────────────────────────────────
                 if (scope === 'all' || scope === 'emojis') {
                     await wipeEmojis(interaction.guild);
                     const emojiResult = await restoreEmojis(interaction.guild, serverData.emojis || []);
@@ -287,7 +380,7 @@ async function handleRestoreBackup(interaction, state, scope) {
                     if (emojiResult.failed > 0) warnings.push(`${emojiResult.failed} emojis failed to restore`);
                 }
 
-                // ── PHASE 6: BOT CONFIGS ──────────────────────────────────
+                // ── PHASE 7: BOT CONFIGS ──────────────────────────────────
                 if (scope === 'all' || scope === 'configs') {
                     // Refresh channel/role cache after restore
                     await interaction.guild.channels.fetch().catch(() => {});
@@ -346,7 +439,6 @@ async function wipeRoles(guild) {
     const toDelete = guild.roles.cache.filter(r =>
         !r.managed &&
         r.name !== '@everyone' &&
-        !r.permissions.has(PermissionsBitField.Flags.Administrator) &&
         r.editable
     );
     for (const role of toDelete.values()) {
@@ -616,6 +708,7 @@ async function restoreBotConfigs(guild, botConfigs) {
             const roleId = findRole(cfg.roleName);
             if (!channelId) warnings.push(`Verification: channel "${cfg.channelName}" not found`);
             if (!roleId) warnings.push(`Verification: role "${cfg.roleName}" not found`);
+
             await VerifySchema.findOneAndUpdate(
                 { Guild: guildId },
                 {
@@ -630,6 +723,46 @@ async function restoreBotConfigs(guild, botConfigs) {
                 },
                 { upsert: true, new: true }
             );
+
+            // Re-post active Verification Embed and Button in the restored channel!
+            if (channelId) {
+                const vChannel = guild.channels.cache.get(channelId);
+                if (vChannel && vChannel.isTextBased()) {
+                    const verifyButtons = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder()
+                            .setCustomId("verify")
+                            .setLabel("✅ Verify")
+                            .setStyle(ButtonStyle.Success)
+                    );
+
+                    const verifyEmbed = new EmbedBuilder()
+                        .setColor(cfg.color || "Green")
+                        .setTimestamp()
+                        .setTitle("• Verification Message")
+                        .setAuthor({ name: `✅ Verification Process` })
+                        .setDescription(`> ${cfg.messageContent || "Complete the Captcha and verify with Discord to get full access to the server!"}`);
+
+                    if (cfg.thumbnail) verifyEmbed.setThumbnail(cfg.thumbnail);
+                    if (cfg.image) verifyEmbed.setImage(cfg.image);
+                    if (cfg.footer) verifyEmbed.setFooter({ text: cfg.footer });
+                    else verifyEmbed.setFooter({ text: `✅ Verification Prompt` });
+
+                    const msg = await vChannel.send({
+                        embeds: [verifyEmbed],
+                        components: [verifyButtons]
+                    }).catch(e => {
+                        warnings.push(`Verification embed post: ${e.message}`);
+                    });
+
+                    if (msg) {
+                        await VerifySchema.updateOne(
+                            { Guild: guildId },
+                            { $set: { Message: msg.id } }
+                        );
+                    }
+                }
+            }
+
             restored.push('verification');
         } catch (e) { warnings.push(`Verification restore failed: ${e.message}`); }
     }
@@ -824,21 +957,80 @@ function buildPermOverwrites(guild, roleMap, permissions) {
     }).filter(Boolean);
 }
 
-// ─── LIST ─────────────────────────────────────────────────────────────────────
+// ─── INFO ─────────────────────────────────────────────────────────────────────
 
-async function handleListBackups(interaction) {
+async function handleInfoBackup(interaction, backupId) {
     try {
-        const backups = await BackupSchema.find({ guildId: interaction.guild.id }).sort({ createdAt: -1 });
-        if (!backups.length) {
-            return interaction.reply({ content: 'No backups found for this server. Use `/backup create` to make one.', flags: MessageFlags.Ephemeral });
+        if (!backupId) {
+            return interaction.reply({ content: 'Please provide a valid Backup ID.', flags: MessageFlags.Ephemeral });
+        }
+        const cleanId = backupId.trim();
+        const backup = await BackupSchema.findOne({ backupId: cleanId }) ||
+                       await BackupSchema.findOne({ backupId: new RegExp('^' + cleanId + '$', 'i') });
+
+        if (!backup) {
+            return interaction.reply({ content: `❌ Backup with ID \`${cleanId}\` not found in database.`, flags: MessageFlags.Ephemeral });
         }
 
+        let serverData;
+        try {
+            serverData = JSON.parse(backup.data);
+        } catch (e) {
+            return interaction.reply({ content: '❌ Backup data is corrupted or cannot be parsed.', flags: MessageFlags.Ephemeral });
+        }
+
+        const configsStored = Object.keys(serverData.botConfigs || {}).join(', ') || 'none';
         const embed = new EmbedBuilder()
-            .setTitle('📦 Server Backups')
-            .setDescription(`All backups for **${interaction.guild.name}**`)
+            .setTitle(`ℹ️ Backup Information [${backup.backupId || cleanId}]`)
+            .setColor('#00b4d8')
+            .setDescription(`Detailed snapshot info for **${backup.guildName || serverData.guildInfo?.name || 'Unknown Guild'}**`)
+            .addFields(
+                { name: 'Backup ID', value: `\`${backup.backupId || cleanId}\``, inline: true },
+                { name: 'Origin Server', value: `**${backup.guildName || serverData.guildInfo?.name || 'Unknown'}** (\`${backup.guildId}\`)`, inline: true },
+                { name: 'State', value: `\`${backup.state}\``, inline: true },
+                { name: 'Created', value: `<t:${Math.floor(new Date(backup.createdAt).getTime() / 1000)}:R>`, inline: true },
+                { name: 'Size', value: `${((backup.size || Buffer.byteLength(backup.data, 'utf8')) / 1024).toFixed(2)} KB`, inline: true },
+                { name: 'Type', value: backup.isAuto ? '📅 24h Auto' : '💾 Manual Snapshot', inline: true },
+                { name: 'Categories', value: `${serverData.categories?.length || 0}`, inline: true },
+                { name: 'Channels', value: `${serverData.channels?.length || 0}`, inline: true },
+                { name: 'Roles', value: `${serverData.roles?.length || 0}`, inline: true },
+                { name: 'Members w/ Roles', value: `${serverData.members?.length || 0}`, inline: true },
+                { name: 'Emojis', value: `${serverData.emojis?.length || 0}`, inline: true },
+                { name: 'Bot Configs', value: configsStored, inline: true },
+                { name: 'Cross-Server Restore Command', value: `\`/backup restore backup_id:${backup.backupId || cleanId}\``, inline: false }
+            )
+            .setFooter({ text: 'Xenon Cross-Server Engine' })
+            .setTimestamp();
+
+        if (serverData.guildInfo?.icon) {
+            embed.setThumbnail(serverData.guildInfo.icon);
+        }
+
+        return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    } catch (error) {
+        console.error('[BACKUP] Info Error:', error);
+        return interaction.reply({ content: `Failed to retrieve backup info: ${error.message}`, flags: MessageFlags.Ephemeral }).catch(() => {});
+    }
+}
+
+// ─── LIST ─────────────────────────────────────────────────────────────────────
+
+async function handleListBackups(interaction, serverId) {
+    try {
+        const targetGuildId = (serverId || interaction.guild.id).trim();
+        const backups = await BackupSchema.find({ guildId: targetGuildId }).sort({ createdAt: -1 });
+        if (!backups.length) {
+            return interaction.reply({ content: `No backups found for server \`${targetGuildId}\`. Use \`/backup create\` to make one.`, flags: MessageFlags.Ephemeral });
+        }
+
+        const firstBackup = backups[0];
+        const serverName = firstBackup.guildName || (targetGuildId === interaction.guild.id ? interaction.guild.name : targetGuildId);
+
+        const embed = new EmbedBuilder()
+            .setTitle('📦 Xenon Server Backups')
+            .setDescription(`Backups for **${serverName}** (\`${targetGuildId}\`)`)
             .setColor('#80b918')
-            .setTimestamp()
-            .setThumbnail(interaction.guild.iconURL({ dynamic: true }));
+            .setTimestamp();
 
         for (const [index, backup] of backups.entries()) {
             try {
@@ -846,16 +1038,18 @@ async function handleListBackups(interaction) {
                 const typeLabel = backup.isAuto ? '📅 Auto' : '💾 Manual';
                 const hasConfigs = serverData.botConfigs && Object.keys(serverData.botConfigs).length > 0;
                 const schemaV = serverData.schemaVersion || '1.0.0';
+                const bId = backup.backupId ? `\`${backup.backupId}\`` : '*(legacy)*';
+
                 embed.addFields({
-                    name: `${index + 1}. \`${backup.state}\` [${typeLabel}]`,
+                    name: `${index + 1}. ID: ${bId} | State: \`${backup.state}\` [${typeLabel}]`,
                     value: [
                         `**Created:** <t:${Math.floor(new Date(backup.createdAt).getTime() / 1000)}:R>`,
-                        `**Size:** ${(backup.size / 1024).toFixed(2)} KB  |  **Schema:** v${schemaV}`,
+                        `**Size:** ${((backup.size || Buffer.byteLength(backup.data, 'utf8')) / 1024).toFixed(2)} KB  |  **Schema:** v${schemaV}`,
                         `**Cats/Channels/Roles:** ${serverData.categories?.length || 0} / ${serverData.channels?.length || 0} / ${serverData.roles?.length || 0}`,
                         `**Members w/ Roles:** ${serverData.members?.length || 0}  |  **Emojis:** ${serverData.emojis?.length || 0}`,
-                        `**Bot Configs:** ${hasConfigs ? Object.keys(serverData.botConfigs).join(', ') : 'none (old backup)'}`,
-                        `**Creator:** ${backup.isAuto ? 'System' : `<@${backup.creatorId}>`}`
-                    ].join('\n'),
+                        `**Bot Configs:** ${hasConfigs ? Object.keys(serverData.botConfigs).join(', ') : 'none'}`,
+                        backup.backupId ? `**Restore:** \`/backup restore backup_id:${backup.backupId}\`` : ''
+                    ].filter(Boolean).join('\n'),
                     inline: false
                 });
             } catch (e) {

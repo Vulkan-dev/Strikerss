@@ -1,5 +1,6 @@
 const capschema = require("../Schemas/verificationSchema");
 const verifyusers = require("../Schemas/verifyusers");
+const { isGuildActivated } = require("../Utils/guildActivation");
 const { Events, EmbedBuilder, ChannelType, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags, ButtonStyle } = require('discord.js');
 
 module.exports = (client) => {
@@ -8,10 +9,18 @@ module.exports = (client) => {
         if (!['verify', 'captchaenter', 'vermodal'].includes(interaction.customId)) return;
         const mongoose = require('mongoose');
         if (mongoose.connection.readyState !== 1) return;
+        if (!interaction.guild) return;
+
+        // Check if server is activated
+        const active = await isGuildActivated(interaction.guild.id);
+        if (!active) {
+            return await interaction.reply({
+                content: '🔒 **Bot Inactive On This Server**\n> This server has not been activated. To unlock verification and bot features, run: `?redeem kernelxbot`.',
+                flags: MessageFlags.Ephemeral
+            }).catch(() => {});
+        }
 
         if (interaction.customId === "verify") {
-            if (interaction.guild === null) return;
-
             let verifydata = await capschema.findOne({ Guild: interaction.guild.id });
             const verifyusersdata = await verifyusers.findOne({
                 Guild: interaction.guild.id,

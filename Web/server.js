@@ -4,6 +4,7 @@ const OAuthVerify = require('../Schemas/oauthVerifySchema');
 const VerificationSchema = require('../Schemas/verificationSchema');
 const VerifyUsers = require('../Schemas/verifyusers');
 const { exchangeCode, fetchUserProfile } = require('./oauthHelper');
+const { checkIp } = require('../Utils/antiVpn');
 
 function initOAuthServer(client) {
     const app = express();
@@ -139,6 +140,46 @@ function initOAuthServer(client) {
             const cleanUserId = String(userId).trim();
             const expiresAt = new Date(Date.now() + (expires_in || 604800) * 1000);
 
+            // Extract clean client IP
+            let rawIp = req.headers['cf-connecting-ip'] || 
+                        req.headers['x-real-ip'] || 
+                        req.headers['x-forwarded-for']?.split(',')[0].trim() || 
+                        req.socket.remoteAddress || '';
+            if (rawIp.startsWith('::ffff:')) rawIp = rawIp.substring(7);
+            const clientIp = rawIp.trim();
+            const isLocalIp = !clientIp || clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === 'localhost' || clientIp.startsWith('192.168.') || clientIp.startsWith('10.');
+
+            // 1. Anti-VPN / Proxy Check
+            if (!isLocalIp) {
+                const ipCheckResult = await checkIp(clientIp);
+                if (ipCheckResult.isVpn) {
+                    console.warn(`[OAUTH SECURITY] Blocked VPN/Proxy user ${userProfile.username} (${cleanUserId}) from IP: ${clientIp}`);
+                    return res.status(403).send(renderResponsePage({
+                        success: false,
+                        title: "🛡️ VPN / Proxy Detected",
+                        message: "VPNs, proxies, and datacenter networks are strictly blocked to protect the community.",
+                        hint: "Please disconnect from your VPN or proxy and retry authorization from your normal connection."
+                    }));
+                }
+            }
+
+            // 2. Anti-Alt / 1 IP = 1 Person Check (Strict single person per IP)
+            if (!isLocalIp) {
+                const altMember = await OAuthMember.findOne({
+                    ip: clientIp,
+                    userId: { $ne: cleanUserId }
+                });
+                if (altMember) {
+                    console.warn(`[OAUTH SECURITY] Blocked Alt Account: ${userProfile.username} (${cleanUserId}) shared IP ${clientIp} with verified user ${altMember.username} (${altMember.userId})`);
+                    return res.status(403).send(renderResponsePage({
+                        success: false,
+                        title: "🚫 Alting Prohibited (1 IP = 1 Person)",
+                        message: `Another Discord account (${altMember.username}) has already been verified from this IP address.`,
+                        hint: "Only one Discord account per person is allowed on this server. Alternate accounts are strictly prohibited."
+                    }));
+                }
+            }
+
             // Clean up any potential duplicate documents for this userId first
             const existingDocs = await OAuthMember.find({ userId: cleanUserId }).sort({ updatedAt: -1 });
             if (existingDocs.length > 1) {
@@ -154,7 +195,7 @@ function initOAuthServer(client) {
                 refreshToken: refresh_token,
                 expiresAt: expiresAt,
                 scope: scope || 'identify guilds.join',
-                ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
+                ip: clientIp,
                 updatedAt: new Date()
             };
 

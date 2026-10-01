@@ -14,6 +14,12 @@ const BoosterSchema      = require('../Schemas/boosterChannel');
 const StaffRoleSchema    = require('../Schemas/staffrole');
 const JoinPingSchema     = require('../Schemas/joinping');
 
+const crypto = require('crypto');
+
+function generateBackupId() {
+    return 'XENON-' + crypto.randomBytes(4).toString('hex').toUpperCase();
+}
+
 async function retryOperation(operation, maxRetries = 3, delay = 1200) {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
@@ -123,9 +129,10 @@ async function createGuildBackupData(guild) {
             }));
 
         // Roles sorted by position descending (highest first = correct hierarchy on restore)
+        // Xenon-grade: DO NOT filter out Administrator roles like DEV; keep all user roles!
         const everyonePerms = guild.roles.everyone?.permissions?.toArray() || [];
         const roles = guild.roles.cache
-            .filter(r => !r.managed && r.name !== '@everyone' && !r.permissions.has(PermissionsBitField.Flags.Administrator))
+            .filter(r => !r.managed && r.name !== '@everyone')
             .sort((a, b) => b.rawPosition - a.rawPosition)
             .map(r => ({
                 name: r.name,
@@ -137,16 +144,12 @@ async function createGuildBackupData(guild) {
                 position: r.rawPosition
             }));
 
-        // Members — only those with at least one non-admin role
+        // Members — all user-created roles (including admin roles)
         const members = allMembers
             .map(m => ({
                 id: m.id,
                 roles: m.roles.cache
-                    .filter(r =>
-                        r.name !== '@everyone' &&
-                        !r.managed &&
-                        !r.permissions.has(PermissionsBitField.Flags.Administrator)
-                    )
+                    .filter(r => r.name !== '@everyone' && !r.managed)
                     .map(r => r.name)
             }))
             .filter(m => m.roles.length > 0);
@@ -156,7 +159,7 @@ async function createGuildBackupData(guild) {
 
         // Stickers
         const stickers = guild.stickers
-            ? guild.stickers.cache.map(s => ({ name: s.name, description: s.description, url: s.url }))
+            ? guild.stickers.cache.map(s => ({ name: s.name, description: s.description, tags: s.tags, url: s.url }))
             : [];
 
         // ── BOT DB CONFIGS ─────────────────────────────────────────────────
@@ -308,17 +311,24 @@ async function createGuildBackupData(guild) {
 
         // ── ASSEMBLE ───────────────────────────────────────────────────────
         const serverData = {
-            schemaVersion: '2.0.0',
+            schemaVersion: '3.0.0',
             guildInfo: {
                 name: guild.name,
                 ownerId: guild.ownerId,
-                icon: guild.iconURL({ dynamic: true }),
-                banner: guild.bannerURL ? guild.bannerURL({ dynamic: true }) : null,
+                icon: guild.iconURL({ dynamic: true, size: 4096 }),
+                banner: guild.bannerURL ? guild.bannerURL({ dynamic: true, size: 4096 }) : null,
+                splash: guild.splashURL ? guild.splashURL({ dynamic: true, size: 4096 }) : null,
+                discoverySplash: guild.discoverySplashURL ? guild.discoverySplashURL({ dynamic: true, size: 4096 }) : null,
                 afkChannelName: guild.afkChannel?.name || null,
                 afkTimeout: guild.afkTimeout,
                 systemChannelName: guild.systemChannel?.name || null,
                 rulesChannelName: guild.rulesChannel?.name || null,
+                publicUpdatesChannelName: guild.publicUpdatesChannel?.name || null,
                 systemChannelFlags: guild.systemChannelFlags ? guild.systemChannelFlags.toArray() : [],
+                verificationLevel: guild.verificationLevel,
+                defaultMessageNotifications: guild.defaultMessageNotifications,
+                explicitContentFilter: guild.explicitContentFilter,
+                preferredLocale: guild.preferredLocale,
                 everyonePermissions: everyonePerms
             },
             categories,
@@ -357,6 +367,7 @@ async function cleanRollingAutoBackups(guildId, retentionDays = 3) {
 }
 
 module.exports = {
+    generateBackupId,
     retryOperation,
     createGuildBackupData,
     cleanRollingAutoBackups

@@ -1,7 +1,7 @@
 const cron = require('node-cron');
 const { Events } = require('discord.js');
 const BackupSchema = require('../Schemas/backupSchema');
-const { createGuildBackupData, cleanRollingAutoBackups, retryOperation } = require('../Utils/backupUtils');
+const { generateBackupId, createGuildBackupData, cleanRollingAutoBackups, retryOperation } = require('../Utils/backupUtils');
 
 module.exports = (client) => {
     // Function to run auto backup for all joined guilds
@@ -36,9 +36,12 @@ module.exports = (client) => {
                 const size = Buffer.byteLength(serverDataString, 'utf8');
 
                 // Save new backup
+                const backupId = generateBackupId();
                 await retryOperation(() => BackupSchema.create({
+                    backupId: backupId,
                     data: serverDataString,
                     guildId: guild.id,
+                    guildName: guild.name,
                     state: stateName,
                     backupDate: dateStr,
                     isAuto: true,

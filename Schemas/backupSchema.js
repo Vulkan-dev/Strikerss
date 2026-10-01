@@ -1,6 +1,10 @@
 const mongoose = require('mongoose');
 
 const backupSchema = new mongoose.Schema({
+    backupId: {
+        type: String,
+        index: true
+    },
     data: {
         type: String,
         required: true
@@ -8,6 +12,10 @@ const backupSchema = new mongoose.Schema({
     guildId: {
         type: String,
         required: true
+    },
+    guildName: {
+        type: String,
+        default: 'Unknown'
     },
     state: {
         type: String,
@@ -38,7 +46,6 @@ const backupSchema = new mongoose.Schema({
 });
 
 // Indexes for frequent queries
-backupSchema.index({ guildId: 1 });
 backupSchema.index({ guildId: 1, state: 1 });
 backupSchema.index({ guildId: 1, isAuto: 1, createdAt: 1 });
 

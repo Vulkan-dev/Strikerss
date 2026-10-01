@@ -14,10 +14,25 @@ const isGuildPremium = async (guildId) => {
   return isPremium && isPremium.isPremiumGuild;
 }
 const blacklistDB = require("../../Schemas/blacklistSchema");
+const { isGuildActivated } = require("../../Utils/guildActivation");
 
 module.exports = {
     name: 'interactionCreate',
     async execute(interaction, client) {
+        // Enforce Server Activation: unactivated servers cannot run commands or buttons (except /redeem)
+        if (interaction.guild) {
+            const isRedeemCommand = interaction.isCommand() && interaction.commandName === 'redeem';
+            if (!isRedeemCommand) {
+                const active = await isGuildActivated(interaction.guild.id);
+                if (!active) {
+                    return interaction.reply({
+                        content: '🔒 **Bot Inactive On This Server**\n> This server has not been activated yet. To activate the bot and unlock all features, an administrator must run: `?redeem kernelxbot` (or `/redeem key:kernelxbot`).',
+                        flags: MessageFlags.Ephemeral
+                    }).catch(() => {});
+                }
+            }
+        }
+
         // Handle Clan Applicant Review Buttons (Approve / Reject)
         if (interaction.isButton()) {
             if (interaction.customId.startsWith('clan_approve_') || interaction.customId.startsWith('clan_reject_')) {
