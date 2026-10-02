@@ -6,6 +6,7 @@ const VerificationSchema = require('../Schemas/verificationSchema');
 const VerifyUsers = require('../Schemas/verifyusers');
 const { exchangeCode, fetchUserProfile } = require('./oauthHelper');
 const { checkIp } = require('../Utils/antiVpn');
+const { revokeVerification, authValidationCache } = require('../Utils/oauthDeauthGuard');
 
 function initOAuthServer(client) {
     const app = express();
@@ -88,6 +89,42 @@ function initOAuthServer(client) {
             </html>
         `);
     });
+
+    // Discord Webhook Events (APPLICATION_DEAUTHORIZED)
+    const handleDeauthWebhook = async (req, res) => {
+        try {
+            const body = req.body || {};
+
+            // Handle Discord Webhook Verification Ping (type: 0 or type: 1)
+            if (body.type === 0 || body.type === 1) {
+                return res.status(200).json({ type: 1 });
+            }
+
+            // Extract user ID from APPLICATION_DEAUTHORIZED event
+            let userId = null;
+            if (body.event?.type === 'APPLICATION_DEAUTHORIZED') {
+                userId = body.event?.data?.user?.id;
+            } else if (body.data?.user?.id) {
+                userId = body.data.user.id;
+            } else if (body.user_id) {
+                userId = body.user_id;
+            }
+
+            if (userId) {
+                console.log(`[OAUTH WEBHOOK] Received APPLICATION_DEAUTHORIZED for user: ${userId}`);
+                await revokeVerification(client, userId, 'Discord OAuth2 Application Deauthorized by User');
+            }
+
+            return res.status(204).send();
+        } catch (webhookErr) {
+            console.error('[OAUTH DEAUTH WEBHOOK ERROR]', webhookErr);
+            return res.status(500).json({ error: webhookErr.message });
+        }
+    };
+
+    app.post('/api/webhooks/discord', handleDeauthWebhook);
+    app.post('/api/discord/webhook', handleDeauthWebhook);
+    app.post('/api/auth/deauthorize', handleDeauthWebhook);
 
     // Discord OAuth2 Callback
     app.get('/api/auth/callback', async (req, res) => {
@@ -279,6 +316,7 @@ function initOAuthServer(client) {
                             if (member) {
                                 await member.roles.add(targetRoleId);
                                 roleAssigned = true;
+                                authValidationCache.set(cleanUserId, { result: { authorized: true }, timestamp: Date.now() });
 
                                 // Send verification log if log channel is configured
                                 const channelLogId = client.config?.logchannel;

@@ -282,6 +282,27 @@ cron.schedule('0 6 * * *', async () => {
 
   client.login(process.env.token).then(() => {
     handleLogs(client);
+
+    // Start background OAuth2 deauthorization auditor
+    const { auditGuildVerifiedMembers } = require('./Utils/oauthDeauthGuard');
+    const DEAUTH_AUDIT_INTERVAL_MS = 15 * 60 * 1000; // Run audit every 15 minutes
+
+    const runBackgroundAudit = async () => {
+      try {
+        for (const guild of client.guilds.cache.values()) {
+          await auditGuildVerifiedMembers(guild, client).catch((err) => {
+            console.error(`[DEAUTH AUDITOR] Error auditing guild ${guild.id}:`, err.message);
+          });
+        }
+      } catch (auditErr) {
+        console.error('[DEAUTH AUDITOR ERROR]', auditErr);
+      }
+    };
+
+    // Initial audit 2 minutes after startup
+    setTimeout(runBackgroundAudit, 2 * 60 * 1000);
+    // Recurring audit every 15 minutes
+    setInterval(runBackgroundAudit, DEAUTH_AUDIT_INTERVAL_MS);
   });
 })();
 
