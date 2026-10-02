@@ -26,7 +26,7 @@ module.exports = {
                 const active = await isGuildActivated(interaction.guild.id);
                 if (!active) {
                     return interaction.reply({
-                        content: '🔒 **Bot Inactive On This Server**\n> This server has not been activated yet. To activate the bot and unlock all features, an administrator must run: `?redeem kernelxbot` (or `/redeem key:kernelxbot`).',
+                        content: '🔒 **Bot Inactive On This Server**',
                         flags: MessageFlags.Ephemeral
                     }).catch(() => {});
                 }

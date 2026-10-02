@@ -1,4 +1,4 @@
-﻿const {
+const {
     SlashCommandBuilder,
     PermissionsBitField,
     EmbedBuilder,
@@ -14,7 +14,7 @@ module.exports = {
         .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
         .addStringOption(option =>
             option.setName("key")
-                .setDescription("Activation license key (e.g. kernelxbot)")
+                .setDescription("Activation license key")
                 .setRequired(true)),
 
     async execute(interaction, client) {

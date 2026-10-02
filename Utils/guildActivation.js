@@ -1,4 +1,4 @@
-﻿const ActivatedGuild = require('../Schemas/activatedGuildSchema');
+const ActivatedGuild = require('../Schemas/activatedGuildSchema');
 const mongoose = require('mongoose');
 
 // Built-in whitelisted servers that are permanently active
@@ -44,7 +44,7 @@ async function activateGuild(guild, user, key) {
     if (cleanKey !== VALID_ACTIVATION_KEY) {
         return {
             success: false,
-            message: '❌ **Invalid activation key!** You must use the valid key: `kernelxbot`.'
+            message: '❌ **Invalid activation key!** Please check your license key and try again.'
         };
     }
 

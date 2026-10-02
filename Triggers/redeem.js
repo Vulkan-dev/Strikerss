@@ -1,4 +1,4 @@
-﻿const { Events, EmbedBuilder, PermissionsBitField } = require("discord.js");
+const { Events, EmbedBuilder, PermissionsBitField } = require("discord.js");
 const { activateGuild, isGuildActivated } = require("../Utils/guildActivation");
 
 module.exports = {
@@ -27,7 +27,7 @@ module.exports = {
 
             if (!key) {
                 return message.reply({
-                    content: '⚠️ Please specify the activation key: `?redeem kernelxbot`'
+                    content: '⚠️ Please specify the activation key: `?redeem <key>`'
                 }).catch(() => {});
             }
 
