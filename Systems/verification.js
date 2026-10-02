@@ -51,11 +51,40 @@ module.exports = (client) => {
                 });
             }
 
-            if (verifydata.Verified.includes(interaction.user.id)) {
+            // Check if user currently has the verified role in Discord
+            const hasVerifiedRole = Boolean(verifydata.Role && interaction.member.roles.cache.has(verifydata.Role));
+
+            if (hasVerifiedRole) {
                 return await interaction.reply({
                     content: "You have **already** been verified!",
                     flags: MessageFlags.Ephemeral,
                 });
+            }
+
+            // User does not currently have the verified role in Discord.
+            // If they are in the database Verified list (e.g. rejoining member):
+            if (Array.isArray(verifydata.Verified) && verifydata.Verified.includes(interaction.user.id)) {
+                if (verifydata.Role) {
+                    try {
+                        const targetRole = interaction.guild.roles.cache.get(verifydata.Role);
+                        if (targetRole) {
+                            await interaction.member.roles.add(verifydata.Role);
+                            return await interaction.reply({
+                                content: `✅ **Welcome back!** You were already verified, so your <@&${verifydata.Role}> role has been restored!`,
+                                flags: MessageFlags.Ephemeral,
+                            });
+                        }
+                    } catch (err) {
+                        console.warn(`[VERIFY] Could not re-assign role to returning member ${interaction.user.tag}:`, err.message);
+                    }
+                }
+
+                // If role could not be restored directly, remove from Verified so they can solve captcha and verify freshly
+                await capschema.updateOne(
+                    { Guild: interaction.guild.id },
+                    { $pull: { Verified: interaction.user.id } }
+                );
+                verifydata.Verified = verifydata.Verified.filter(id => id !== interaction.user.id);
             }
 
             // Function to generate a random string for the captcha
@@ -224,11 +253,32 @@ module.exports = (client) => {
                 });
             }
 
-            if (verificationdata.Verified && verificationdata.Verified.includes(interaction.user.id)) {
+            const hasVerifiedRoleModal = Boolean(verificationdata.Role && interaction.member.roles.cache.has(verificationdata.Role));
+            if (hasVerifiedRoleModal) {
                 return await interaction.reply({
                     content: `You have **already** verified within this server!`,
                     flags: MessageFlags.Ephemeral,
                 });
+            }
+
+            if (Array.isArray(verificationdata.Verified) && verificationdata.Verified.includes(interaction.user.id)) {
+                if (verificationdata.Role) {
+                    try {
+                        const targetRole = interaction.guild.roles.cache.get(verificationdata.Role);
+                        if (targetRole) {
+                            await interaction.member.roles.add(verificationdata.Role);
+                            return await interaction.reply({
+                                content: `✅ **Welcome back!** Your <@&${verificationdata.Role}> role has been restored!`,
+                                flags: MessageFlags.Ephemeral,
+                            });
+                        }
+                    } catch (err) {}
+                }
+                await capschema.updateOne(
+                    { Guild: interaction.guild.id },
+                    { $pull: { Verified: interaction.user.id } }
+                );
+                verificationdata.Verified = verificationdata.Verified.filter(id => id !== interaction.user.id);
             }
 
             if (!userverdata) {
@@ -309,7 +359,30 @@ module.exports = (client) => {
         }
     });
 
-    // Event: guildMemberRemove (Remove Verification Data)
+    // Event: GuildMemberAdd (Auto-restore verified role when a verified member rejoins)
+    client.on(Events.GuildMemberAdd, async (member) => {
+        try {
+            if (!member || !member.guild || !member.user || member.user.bot) return;
+            const mongoose = require('mongoose');
+            if (mongoose.connection.readyState !== 1) return;
+
+            const verificationdata = await capschema.findOne({ Guild: member.guild.id });
+            if (!verificationdata || !verificationdata.Role) return;
+
+            const isVerifiedInDb = Array.isArray(verificationdata.Verified) && verificationdata.Verified.includes(member.user.id);
+            if (isVerifiedInDb) {
+                const roleObj = member.guild.roles.cache.get(verificationdata.Role);
+                if (roleObj && !member.roles.cache.has(verificationdata.Role)) {
+                    await member.roles.add(verificationdata.Role).catch(() => {});
+                    console.log(`[VERIFY] Auto-restored Verified role to rejoining member: ${member.user.tag} (${member.user.id}) in ${member.guild.name}`);
+                }
+            }
+        } catch (err) {
+            console.error('[VERIFY] GuildMemberAdd auto-restore error:', err.message);
+        }
+    });
+
+    // Event: guildMemberRemove (Clean up pending temporary captcha sessions)
     client.on(Events.GuildMemberRemove, async (member) => {
         try {
             if (!member || !member.guild || !member.user) return;
@@ -317,23 +390,9 @@ module.exports = (client) => {
             if (mongoose.connection.readyState !== 1) return;
 
             const userId = member.user.id;
-            const userverdata = await verifyusers.findOne({
-                Guild: member.guild.id,
-                User: userId,
-            });
-            const verificationdata = await capschema.findOne({
-                Guild: member.guild.id,
-            });
-
-            if (userverdata && verificationdata) {
-                await capschema.updateOne(
-                    { Guild: member.guild.id },
-                    { $pull: { Verified: userId } }
-                );
-                await verifyusers.deleteOne({ Guild: member.guild.id, User: userId });
-            }
+            await verifyusers.deleteMany({ Guild: member.guild.id, User: userId }).catch(() => {});
         } catch (err) {
-            console.error(err);
+            console.error('[VERIFY] GuildMemberRemove error:', err.message);
         }
     });
 };
