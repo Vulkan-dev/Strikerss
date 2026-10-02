@@ -61,15 +61,17 @@ async function sendWelcomeMessage(member, customChannelId = null) {
     const sendOptions = { embeds: [embed] };
 
     // Image/GIF handling:
-    // If an external image URL is explicitly configured, use it.
-    // Otherwise, attach and render the bundled 1234.gif!
-    if (welcomeData?.image && (welcomeData.image.startsWith("http://") || welcomeData.image.startsWith("https://"))) {
-        embed.setImage(welcomeData.image);
+    // Uses the STRIKERS emblem GIF (https://i.postimg.cc/d3XLkpHy/hmm.gif) as shown in the screenshot
+    const gifUrl = welcomeData?.image || "https://i.postimg.cc/d3XLkpHy/hmm.gif";
+    if (gifUrl && (gifUrl.startsWith("http://") || gifUrl.startsWith("https://"))) {
+        embed.setImage(gifUrl);
     } else {
-        const localGifPath = path.join(__dirname, "../../Assets/1234.gif");
-        if (fs.existsSync(localGifPath)) {
-            const attachment = new AttachmentBuilder(localGifPath, { name: "1234.gif" });
-            embed.setImage("attachment://1234.gif");
+        const localGifPath = path.join(__dirname, "../../Assets/hmm.gif");
+        const fallbackPath = path.join(__dirname, "../../Assets/1234.gif");
+        const activePath = fs.existsSync(localGifPath) ? localGifPath : (fs.existsSync(fallbackPath) ? fallbackPath : null);
+        if (activePath) {
+            const attachment = new AttachmentBuilder(activePath, { name: "welcome.gif" });
+            embed.setImage("attachment://welcome.gif");
             sendOptions.files = [attachment];
         }
     }

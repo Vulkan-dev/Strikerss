@@ -6,7 +6,7 @@ const Redeem = require("../../Schemas/redeem");
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName("redeem")
+        .setName("redeem-premium")
         .setDescription("Redeem premium code")
         .addStringOption((option) =>
             option.setName("code")
