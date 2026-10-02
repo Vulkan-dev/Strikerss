@@ -10,6 +10,7 @@ const welcomeMessageSchema = new Schema({
   title: String,
   color: String,
   image: String,
+  footer: String,
 });
 
 module.exports = model("WelcomeMessage", welcomeMessageSchema);

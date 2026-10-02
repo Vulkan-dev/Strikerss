@@ -86,6 +86,45 @@ module.exports = {
                 }
                 return;
             }
+
+            // Handle Welcome System Buttons
+            if (interaction.customId.startsWith('test_welcome_btn') || interaction.customId === 'disable_welcome_btn') {
+                const isAdmin = interaction.member.permissions.has('ManageGuild') ||
+                                interaction.member.permissions.has('Administrator') ||
+                                interaction.user.id === interaction.guild.ownerId ||
+                                interaction.user.id === process.env.developerId;
+
+                if (!isAdmin) {
+                    return interaction.reply({
+                        content: '❌ Only administrators can interact with the welcome configuration.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+
+                if (interaction.customId.startsWith('test_welcome_btn')) {
+                    const WelcomeSchema = require('../../Schemas/welcomeMessageSchema');
+                    const { sendWelcomeMessage } = require('../Others/welcome');
+                    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                    const welcomeData = await WelcomeSchema.findOne({ guildId: interaction.guild.id });
+                    if (!welcomeData || !welcomeData.channelId) {
+                        return interaction.editReply({ content: '⚠️ No welcome channel is configured yet.' });
+                    }
+                    const res = await sendWelcomeMessage(interaction.member, welcomeData.channelId);
+                    if (res.success) {
+                        return interaction.editReply({ content: `✅ Test welcome message sent to <#${welcomeData.channelId}>!` });
+                    } else {
+                        return interaction.editReply({ content: `❌ Failed to send test welcome: ${res.error || 'Unknown error'}` });
+                    }
+                } else if (interaction.customId === 'disable_welcome_btn') {
+                    const WelcomeSchema = require('../../Schemas/welcomeMessageSchema');
+                    await WelcomeSchema.deleteOne({ guildId: interaction.guild.id });
+                    return interaction.reply({
+                        content: '🗑️ **Welcome system has been disabled for this server.**',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+                return;
+            }
         }
 
         if (!interaction.isCommand()) return;

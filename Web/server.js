@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 const OAuthMember = require('../Schemas/oauthMemberSchema');
 const OAuthVerify = require('../Schemas/oauthVerifySchema');
 const VerificationSchema = require('../Schemas/verificationSchema');
@@ -24,6 +25,7 @@ function initOAuthServer(client) {
 
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
+    app.use('/assets', express.static(path.join(__dirname, '../Assets')));
 
     // Enable CORS for web portal
     app.use((req, res, next) => {

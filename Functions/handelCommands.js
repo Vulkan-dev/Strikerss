@@ -23,19 +23,22 @@ module.exports = (client) => {
 
         (async () => {
             try {
-                if (process.env.serverId) {
+                const targetGuildId = process.env.serverId || process.env.CLAN_GUILD_ID;
+                if (targetGuildId) {
                     await rest.put(
-                        Routes.applicationGuildCommands(process.env.clientId, process.env.serverId),
+                        Routes.applicationGuildCommands(process.env.clientId, targetGuildId),
                         { body: client.commandArray }
                     );
-                } else {
-                    await rest.put(
-                        Routes.applicationCommands(process.env.clientId),
-                        { body: client.commandArray }
-                    );
+                    client.logs ? client.logs.success(`[SLASH_COMMANDS] Guild slash commands registered for guild ${targetGuildId}.`)
+                                : console.log(`[SLASH_COMMANDS] Guild slash commands registered for guild ${targetGuildId}.`);
                 }
-                client.logs ? client.logs.success(`[SLASH_COMMANDS] Application commands registered with Discord.`)
-                            : console.log(`[SLASH_COMMANDS] Application commands registered with Discord.`);
+
+                await rest.put(
+                    Routes.applicationCommands(process.env.clientId),
+                    { body: client.commandArray }
+                );
+                client.logs ? client.logs.success(`[SLASH_COMMANDS] Application commands registered globally.`)
+                            : console.log(`[SLASH_COMMANDS] Application commands registered globally.`);
             } catch (error) {
                 console.error('[SLASH_COMMANDS ERROR]', error.message || error);
             }
