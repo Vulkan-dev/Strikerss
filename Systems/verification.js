@@ -2,6 +2,23 @@ const capschema = require("../Schemas/verificationSchema");
 const verifyusers = require("../Schemas/verifyusers");
 const { isGuildActivated } = require("../Utils/guildActivation");
 const { Events, EmbedBuilder, ChannelType, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags, ButtonStyle } = require('discord.js');
+const path = require('path');
+const fs = require('fs');
+
+let GlobalFonts, createCanvas;
+try {
+    const napi = require('@napi-rs/canvas');
+    GlobalFonts = napi.GlobalFonts;
+    createCanvas = napi.createCanvas;
+    const fontPath = path.join(__dirname, '../Assets/captcha.ttf');
+    if (GlobalFonts && fs.existsSync(fontPath)) {
+        GlobalFonts.registerFromPath(fontPath, 'CaptchaFont');
+    }
+} catch (e) {
+    try {
+        createCanvas = require('canvas').createCanvas;
+    } catch (_) {}
+}
 
 module.exports = (client) => {
     // Event: InteractionCreate (Verification System)
@@ -87,9 +104,9 @@ module.exports = (client) => {
                 verifydata.Verified = verifydata.Verified.filter(id => id !== interaction.user.id);
             }
 
-            // Function to generate a random string for the captcha
+            // Function to generate a random string for the captcha (unambiguous uppercase characters)
             function generateCaptcha(length) {
-                const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+                const characters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
                 let captcha = "";
                 for (let i = 0; i < length; i++) {
                     captcha += characters.charAt(Math.floor(Math.random() * characters.length));
@@ -99,45 +116,51 @@ module.exports = (client) => {
 
             // Function to generate the captcha image
             async function generateCaptchaImage(text) {
-                let createCanvas;
-                try {
-                    createCanvas = require('@napi-rs/canvas').createCanvas;
-                } catch (e) {
-                    createCanvas = require('canvas').createCanvas;
+                let cvsCreator = createCanvas;
+                if (!cvsCreator) {
+                    try {
+                        cvsCreator = require('@napi-rs/canvas').createCanvas;
+                    } catch (e) {
+                        cvsCreator = require('canvas').createCanvas;
+                    }
                 }
 
-                const canvas = createCanvas(450, 150);
+                const canvas = cvsCreator(450, 150);
                 const ctx = canvas.getContext('2d');
 
-                // Clear canvas for transparency
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                // Fill dark Discord-friendly background
+                ctx.fillStyle = '#1e1f22';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-                // Random background noise
-                const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-                for (let i = 0; i < 100; i++) {
-                    ctx.fillStyle = `rgba(255, 255, 255, 0.3)`;
-                    ctx.font = `${Math.random() * 20 + 10}px Arial`;
-                    ctx.fillText(
-                        characters.charAt(Math.floor(Math.random() * characters.length)),
-                        Math.random() * canvas.width,
-                        Math.random() * canvas.height
-                    );
+                // Sleek border
+                ctx.strokeStyle = '#35373c';
+                ctx.lineWidth = 4;
+                ctx.strokeRect(2, 2, canvas.width - 4, canvas.height - 4);
+
+                // Subtle noise particles
+                for (let i = 0; i < 40; i++) {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+                    ctx.beginPath();
+                    ctx.arc(Math.random() * canvas.width, Math.random() * canvas.height, Math.random() * 2.5 + 1, 0, Math.PI * 2);
+                    ctx.fill();
                 }
 
-                // Draw the captcha letters in a zig-zag pattern
-                ctx.font = "bold 50px Arial";
-                const letterColors = ["#00FF00", "#FF5733", "#FFD700", "#1E90FF", "#FF69B4"];
+                // Bold high-contrast letters
+                ctx.font = '900 48px CaptchaFont, sans-serif';
+                const letterColors = ['#00FF9D', '#FF5757', '#FFD000', '#38B6FF', '#FF66C4'];
                 const positions = [];
+
                 for (let i = 0; i < text.length; i++) {
-                    const x = 50 + i * 70;
-                    const y = 50 + (i % 2 === 0 ? 30 : 70); // Zig-zag effect
+                    const x = 40 + i * 78;
+                    const y = 85 + (i % 2 === 0 ? -12 : 16);
+                    positions.push({ x: x + 20, y: y - 18 });
+
                     ctx.fillStyle = letterColors[i % letterColors.length];
                     ctx.fillText(text[i], x, y);
-                    positions.push({ x: x + 25, y: y - 25 }); // Center of each letter
                 }
 
-                // Draw the zig-zag line
-                ctx.strokeStyle = "#00FF00";
+                // Connecting accent line (semi-transparent so letters stay clear)
+                ctx.strokeStyle = 'rgba(0, 255, 157, 0.55)';
                 ctx.lineWidth = 3;
                 ctx.beginPath();
                 ctx.moveTo(positions[0].x, positions[0].y);

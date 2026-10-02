@@ -125,10 +125,10 @@ client.on(Events.ClientReady, async (client) => {
   try {
     setInterval(() => {
       let activities = [
-        { type: 'Watching', name: `${client.commands.size} slash commands!` },
-        { type: 'Watching', name: `${client.guilds.cache.size} servers!` },
-        { type: 'Watching', name: `${client.guilds.cache.reduce((a,b) => a+b.memberCount, 0)} members!` },
+        { type: 'Watching', name: 'STRIKERS Security' },
         { type: 'Playing', name: `/help | @${client.user.username}` },
+        { type: 'Watching', name: '/verify in =𝑆𝑇𝑅𝐼𝐾𝐸𝑅𝑆.' },
+        { type: 'Playing', name: 'STRIKERS Clan Protection' }
       ];
 
       const status = activities[Math.floor(Math.random() * activities.length)];
@@ -142,7 +142,7 @@ client.on(Events.ClientReady, async (client) => {
           activities: [{ name: `${status.name}`, type: ActivityType.Playing }]
         });
       } 
-    }, 7500);
+    }, 10000);
     client.logs.success(`[STATUS] Rotating status loaded successfully.`);
   } catch (error) {
     client.logs.error(`[STATUS] Error while loading rotating status.`);
