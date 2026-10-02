@@ -188,10 +188,51 @@ async function auditGuildVerifiedMembers(guild, client) {
     };
 }
 
+/**
+ * Sweeps the entire OAuthMember collection.
+ * Tests tokens against Discord OAuth2 API.
+ * Any member who deauthorized is deleted from the DB and has their verified role revoked across all guilds.
+ */
+async function sweepDeauthorizedOAuthMembers(client) {
+    const allDocs = await OAuthMember.find();
+    let checkedCount = 0;
+    let deletedCount = 0;
+    const deletedUsers = [];
+
+    for (const doc of allDocs) {
+        checkedCount++;
+        try {
+            const val = await validateAndRefreshToken(doc);
+            if (val.deauthorized) {
+                deletedCount++;
+                deletedUsers.push({ id: doc.userId, username: doc.username, reason: val.reason });
+                console.log(`[DEAUTH SWEEPER] Deauthorized user detected: ${doc.username} (${doc.userId}) - Deleting from DB and revoking roles.`);
+                if (client) {
+                    await revokeVerification(client, doc.userId, `OAuth token revoked by user (${val.reason})`);
+                } else {
+                    await OAuthMember.deleteOne({ _id: doc._id }).catch(() => {});
+                    await VerificationSchema.updateMany({}, { $pull: { Verified: doc.userId } }).catch(() => {});
+                    await VerifyUsers.deleteMany({ User: doc.userId }).catch(() => {});
+                }
+            }
+        } catch (err) {
+            console.error(`[DEAUTH SWEEPER] Error validating ${doc.userId}:`, err.message);
+        }
+    }
+
+    return {
+        totalDocs: allDocs.length,
+        checkedCount,
+        deletedCount,
+        deletedUsers
+    };
+}
+
 module.exports = {
     getVerifiedRoleId,
     checkUserAuthorization,
     revokeVerification,
     auditGuildVerifiedMembers,
+    sweepDeauthorizedOAuthMembers,
     authValidationCache
 };

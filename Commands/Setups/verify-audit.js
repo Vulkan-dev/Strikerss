@@ -4,7 +4,7 @@ const {
     EmbedBuilder,
     MessageFlags
 } = require("discord.js");
-const { auditGuildVerifiedMembers } = require("../../Utils/oauthDeauthGuard");
+const { auditGuildVerifiedMembers, sweepDeauthorizedOAuthMembers } = require("../../Utils/oauthDeauthGuard");
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -34,34 +34,39 @@ module.exports = {
         const progressEmbed = new EmbedBuilder()
             .setTitle("🔍 Running OAuth2 Verification Audit...")
             .setColor("#00f5d4")
-            .setDescription("Scanning all verified members in this server and validating active OAuth2 tokens with Discord. Please wait a few moments...")
+            .setDescription("Scanning all verified members in this server, testing tokens with Discord, and sweeping deauthorized database entries. Please wait a few moments...")
             .setFooter({ text: "Strikers OAuth2 Security & Deauth Guard" })
             .setTimestamp();
 
         await interaction.editReply({ embeds: [progressEmbed] });
 
         try {
+            // 1. Sweep entire OAuthMember database
+            const sweepResult = await sweepDeauthorizedOAuthMembers(client).catch(() => ({ deletedCount: 0 }));
+
+            // 2. Audit current guild verified members
             const report = await auditGuildVerifiedMembers(interaction.guild, client);
 
             if (report.error) {
                 return await interaction.editReply({
-                    content: `⚠️ ${report.error}. Please configure the verification system using `/verify-config` first.`,
+                    content: `⚠️ ${report.error}. Please configure the verification system using \`/verify-config\` first.`,
                     embeds: []
                 });
             }
 
             const resultEmbed = new EmbedBuilder()
                 .setTitle("🛡️ Verification & OAuth2 Audit Report")
-                .setColor(report.revokedCount > 0 ? "#ff9900" : "#00f5d4")
+                .setColor((report.revokedCount > 0 || sweepResult.deletedCount > 0) ? "#ff9900" : "#00f5d4")
                 .setDescription(
                     `Audit finished for **${interaction.guild.name}**.\n\n` +
-                    `Members with verified role must have an active authorization with the bot. Anyone who deauthorized the bot has had their verified role revoked automatically.`
+                    `Members with verified role must have an active authorization with the bot. Anyone who deauthorized the bot has had their verified role revoked and database entry deleted.`
                 )
                 .addFields(
                     { name: "Verified Role", value: `<@&${report.roleId}>`, inline: true },
-                    { name: "Total Verified Members", value: `${report.totalVerified}`, inline: true },
+                    { name: "Server Verified Members", value: `${report.totalVerified}`, inline: true },
                     { name: "Authorized Members", value: `✅ ${report.validCount}`, inline: true },
-                    { name: "Deauthorized / Revoked", value: `❌ ${report.revokedCount}`, inline: true }
+                    { name: "Server Roles Revoked", value: `❌ ${report.revokedCount}`, inline: true },
+                    { name: "Deauth DB Entries Deleted", value: `🗑️ ${sweepResult.deletedCount}`, inline: true }
                 )
                 .setFooter({ text: "Strikers OAuth2 Security Engine" })
                 .setTimestamp();

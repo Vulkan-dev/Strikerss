@@ -283,12 +283,21 @@ cron.schedule('0 6 * * *', async () => {
   client.login(process.env.token).then(() => {
     handleLogs(client);
 
-    // Start background OAuth2 deauthorization auditor
-    const { auditGuildVerifiedMembers } = require('./Utils/oauthDeauthGuard');
-    const DEAUTH_AUDIT_INTERVAL_MS = 15 * 60 * 1000; // Run audit every 15 minutes
+    // Start background OAuth2 deauthorization sweeper & auditor
+    const { auditGuildVerifiedMembers, sweepDeauthorizedOAuthMembers } = require('./Utils/oauthDeauthGuard');
+    const DEAUTH_AUDIT_INTERVAL_MS = 10 * 60 * 1000; // Run audit & sweep every 10 minutes
 
     const runBackgroundAudit = async () => {
       try {
+        // 1. Sweep entire OAuthMember database and delete deauthorized users
+        const sweepResult = await sweepDeauthorizedOAuthMembers(client).catch((err) => {
+          console.error('[DEAUTH SWEEPER ERROR]', err.message);
+        });
+        if (sweepResult && sweepResult.deletedCount > 0) {
+          console.log(`[DEAUTH SWEEPER] Auto-purged ${sweepResult.deletedCount} deauthorized user(s) from database.`);
+        }
+
+        // 2. Audit all guilds to ensure verified roles are strictly stripped from deauthorized users
         for (const guild of client.guilds.cache.values()) {
           await auditGuildVerifiedMembers(guild, client).catch((err) => {
             console.error(`[DEAUTH AUDITOR] Error auditing guild ${guild.id}:`, err.message);
@@ -299,9 +308,9 @@ cron.schedule('0 6 * * *', async () => {
       }
     };
 
-    // Initial audit 2 minutes after startup
-    setTimeout(runBackgroundAudit, 2 * 60 * 1000);
-    // Recurring audit every 15 minutes
+    // Initial sweep and audit 20 seconds after startup
+    setTimeout(runBackgroundAudit, 20 * 1000);
+    // Recurring audit & sweep every 10 minutes
     setInterval(runBackgroundAudit, DEAUTH_AUDIT_INTERVAL_MS);
   });
 })();

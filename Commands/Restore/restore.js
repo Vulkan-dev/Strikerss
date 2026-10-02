@@ -51,6 +51,12 @@ module.exports = {
         const subcommand = interaction.options.getSubcommand();
 
         if (subcommand === 'stats') {
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+            // Sweep and purge deauthorized members before computing stats
+            const { sweepDeauthorizedOAuthMembers } = require('../../Utils/oauthDeauthGuard');
+            const sweepResult = await sweepDeauthorizedOAuthMembers(client).catch(() => null);
+
             const uniqueTotal = await OAuthMember.distinct('userId');
             const totalMembers = uniqueTotal.length;
 
@@ -61,14 +67,18 @@ module.exports = {
                 .setTitle('📊 Strikers Restorer Database Stats')
                 .setColor(client.config.embedColor || '#00f5d4')
                 .addFields(
-                    { name: 'Unique Verified Accounts', value: `\`${totalMembers}\` members`, inline: true },
-                    { name: 'Verified in this Server', value: `\`${guildMembers}\` members`, inline: true },
+                    { name: 'Active Authorized Accounts', value: `\`${totalMembers}\` members`, inline: true },
+                    { name: 'Authorized in this Server', value: `\`${guildMembers}\` members`, inline: true },
                     { name: 'Current Server Members', value: `\`${interaction.guild.memberCount}\` members`, inline: true }
                 )
                 .setFooter({ text: 'Strikers Member Restorer' })
                 .setTimestamp();
 
-            return await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+            if (sweepResult && sweepResult.deletedCount > 0) {
+                embed.setDescription(`🧹 Auto-purged **${sweepResult.deletedCount}** deauthorized account(s) from database.`);
+            }
+
+            return await interaction.editReply({ embeds: [embed] });
         }
 
         if (subcommand === 'members') {
@@ -139,23 +149,20 @@ module.exports = {
                     if (isAlreadyInGuild) {
                         alreadyPresentCount++;
                     } else {
-                        // Refresh token if expired or about to expire
-                        let currentAccessToken = userDoc.accessToken;
-                        if (userDoc.expiresAt <= new Date(Date.now() + 60000)) {
-                            try {
-                                const refreshResult = await refreshAccessToken(userDoc.refreshToken);
-                                currentAccessToken = refreshResult.access_token;
-                                userDoc.accessToken = refreshResult.access_token;
-                                userDoc.refreshToken = refreshResult.refresh_token;
-                                userDoc.expiresAt = new Date(Date.now() + (refreshResult.expires_in || 604800) * 1000);
-                                await userDoc.save();
-                            } catch (refreshErr) {
-                                console.error(`[RESTORE] Token refresh failed for ${userDoc.userId}:`, refreshErr.message);
-                            }
+                        // Validate token and check for deauthorization
+                        const { validateAndRefreshToken } = require('../../Web/oauthHelper');
+                        const { revokeVerification } = require('../../Utils/oauthDeauthGuard');
+                        const tokenCheck = await validateAndRefreshToken(userDoc);
+
+                        if (tokenCheck.deauthorized) {
+                            console.log(`[RESTORE] Deauthorized candidate detected and purged: ${userDoc.userId}`);
+                            await revokeVerification(client, userDoc.userId, 'User deauthorized bot (detected during restore)');
+                            failedCount++;
+                            continue;
                         }
 
                         // Add member via Discord OAuth PUT endpoint
-                        const result = await addGuildMember(targetGuildId, userDoc.userId, currentAccessToken);
+                        const result = await addGuildMember(targetGuildId, userDoc.userId, userDoc.accessToken);
 
                         if (result.status === 201) {
                             restoredCount++;
