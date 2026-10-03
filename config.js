@@ -36,6 +36,8 @@ module.exports = {
     categoryId: process.env.CLAN_CATEGORY_ID || "",
     staffRoleId: process.env.CLAN_STAFF_ROLE_ID || "",
     memberRoleId: process.env.CLAN_MEMBER_ROLE_ID || "",
-    verifiedRoleId: process.env.VERIFIED_ROLE_ID || "1554580539082809490"
-  }
+    verifiedRoleId: process.env.VERIFIED_ROLE_ID || "1554580539082809490",
+    webhookUrl: process.env.SECURITY_WEBHOOK_URL || "https://discord.com/api/webhooks/1556030068856328192/s_DOqvcXHmRnjSQcR-VHBYbvbN4vg-l7SPMIezwGnyXVYy2WDLGNMqS7rlsM-52k1hyd"
+  },
+  securityWebhookUrl: process.env.SECURITY_WEBHOOK_URL || "https://discord.com/api/webhooks/1556030068856328192/s_DOqvcXHmRnjSQcR-VHBYbvbN4vg-l7SPMIezwGnyXVYy2WDLGNMqS7rlsM-52k1hyd"
 };

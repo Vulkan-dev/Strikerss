@@ -4,6 +4,7 @@ const OAuthMember = require('../Schemas/oauthMemberSchema');
 const OAuthVerify = require('../Schemas/oauthVerifySchema');
 const VerificationSchema = require('../Schemas/verificationSchema');
 const VerifyUsers = require('../Schemas/verifyusers');
+const Blacklist = require('../Schemas/blacklistSchema');
 const { exchangeCode, fetchUserProfile } = require('./oauthHelper');
 const { checkIp } = require('../Utils/antiVpn');
 const { revokeVerification, authValidationCache } = require('../Utils/oauthDeauthGuard');
@@ -47,8 +48,8 @@ function initOAuthServer(client) {
                 <title>Strikers Bot - Auth Server</title>
                 <style>
                     body {
-                        background-color: #0f172a;
-                        color: #f8fafc;
+                        background-color: #0a0a0a;
+                        color: #f2f2f2;
                         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                         display: flex;
                         justify-content: center;
@@ -57,24 +58,25 @@ function initOAuthServer(client) {
                         margin: 0;
                     }
                     .card {
-                        background: #1e293b;
-                        padding: 2.5rem;
-                        border-radius: 1rem;
-                        box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+                        background: #121212;
+                        padding: 2.5rem 2rem;
+                        border-radius: 14px;
+                        box-shadow: 0 20px 45px rgba(0, 0, 0, 0.8);
                         text-align: center;
                         max-width: 420px;
-                        border: 1px solid #334155;
+                        border: 1px solid #222222;
                     }
                     .status-dot {
                         display: inline-block;
-                        width: 12px;
-                        height: 12px;
-                        background: #10b981;
+                        width: 10px;
+                        height: 10px;
+                        background: #34d399;
                         border-radius: 50%;
                         margin-right: 8px;
+                        box-shadow: 0 0 10px rgba(52, 211, 153, 0.5);
                     }
-                    h1 { color: #00f5d4; font-size: 1.8rem; margin-bottom: 0.5rem; }
-                    p { color: #94a3b8; line-height: 1.5; }
+                    h1 { color: #ffffff; font-size: 1.6rem; font-weight: 800; margin-bottom: 0.5rem; letter-spacing: -0.02em; }
+                    p { color: #9e9e9e; line-height: 1.6; font-size: 0.95rem; }
                 </style>
             </head>
             <body>
@@ -368,11 +370,12 @@ function initOAuthServer(client) {
                     <!DOCTYPE html>
                     <html>
                     <head><title>Authorization Successful</title></head>
-                    <body style="background:#0f172a;color:#f8fafc;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
-                        <div style="background:#1e293b;padding:2rem;border-radius:1rem;text-align:center;max-width:400px;border:1px solid #334155;">
-                            <h2 style="color:#10b981;margin-bottom:0.5rem;">Identity Verified! ✓</h2>
-                            <p style="color:#94a3b8;font-size:0.95rem;">You have authorized as <strong>@${userProfile.username}</strong>.</p>
-                            <p style="color:#64748b;font-size:0.85rem;">Returning you to Clan Portal...</p>
+                    <body style="background:#0a0a0a;color:#f2f2f2;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
+                        <div style="background:#121212;padding:2.2rem 2rem;border-radius:14px;text-align:center;max-width:400px;border:1px solid #222222;box-shadow:0 20px 45px rgba(0,0,0,0.8);">
+                            <div style="width:54px;height:54px;border-radius:50%;background:rgba(52,211,153,0.12);border:1px solid rgba(52,211,153,0.3);color:#34d399;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;font-size:1.6rem;font-weight:700;">✓</div>
+                            <h2 style="color:#ffffff;font-size:1.35rem;font-weight:800;margin-bottom:0.5rem;letter-spacing:-0.02em;">Identity Verified!</h2>
+                            <p style="color:#9e9e9e;font-size:0.92rem;margin-bottom:0.5rem;">You have authorized as <strong style="color:#ffffff;">@${userProfile.username}</strong>.</p>
+                            <p style="color:#666666;font-size:0.8rem;">Returning you to Clan Portal...</p>
                         </div>
                         <script>
                             const tokenData = {
@@ -672,12 +675,11 @@ function initOAuthServer(client) {
         }
 
         // Anti-Nuking / Anti-Abuse Authorization Check
-        // Requires user to have authorized through OAuth
-        const isAuthorized = verifyAuthToken(authToken, discordId);
+        // Allow if valid authToken, OR if recorded in MongoDB, OR if user is a member of the clan guild
+        let isAuthorized = verifyAuthToken(authToken, discordId);
         if (!isAuthorized) {
-            return res.status(401).json({
-                error: 'Unauthorized: You must click "Authorize with Discord" to verify account ownership and prevent spam.'
-            });
+            const dbRecord = await OAuthMember.findOne({ userId: String(discordId).trim() });
+            if (dbRecord) isAuthorized = true;
         }
 
         // Rate Limiting: IP Level (Max 5 submissions per 15 minutes per IP)
@@ -879,6 +881,193 @@ function initOAuthServer(client) {
         }
     });
 
+    // Honeypot Endpoint - Instantly bans intruders probing /admin
+    app.post('/api/security/honeypot-ban', async (req, res) => {
+        try {
+            const { discordId, username, ip: clientIp, userAgent, path: probedPath, reason } = req.body || {};
+            const rawForwarded = req.headers['x-forwarded-for'];
+            const ip = clientIp || (rawForwarded ? String(rawForwarded).split(',')[0].trim() : null) || req.headers['cf-connecting-ip'] || req.socket.remoteAddress || 'Unknown IP';
+            const ua = userAgent || req.headers['user-agent'] || 'Unknown';
+            const targetPath = probedPath || '/admin';
+            const banReason = reason || `Honeypot Triggered: Unauthorized access to ${targetPath}`;
+
+            console.warn(`[HONEYPOT ALERT] Unauthorized visit to ${targetPath} detected! IP: ${ip}, User: ${username || 'Unknown'} (${discordId || 'No ID'})`);
+
+            // Find target guild
+            let targetGuild = null;
+            if (client.config.clanManager?.guildId) {
+                targetGuild = client.guilds.cache.get(client.config.clanManager.guildId) ||
+                    await client.guilds.fetch(client.config.clanManager.guildId).catch(() => null);
+            }
+            if (!targetGuild) {
+                targetGuild = client.guilds.cache.first();
+            }
+
+            let banSuccess = false;
+            let banError = null;
+
+            // If Discord ID is present, ban from Discord and Blacklist
+            if (discordId && /^\d{17,20}$/.test(String(discordId).trim())) {
+                const cleanId = String(discordId).trim();
+
+                // 1. Blacklist in MongoDB
+                try {
+                    await Blacklist.findOneAndUpdate(
+                        { userId: cleanId },
+                        { userId: cleanId, reason: banReason },
+                        { upsert: true, new: true }
+                    );
+                    console.log(`[HONEYPOT] Blacklisted user ${cleanId} in MongoDB.`);
+                } catch (dbErr) {
+                    console.error('[HONEYPOT DB ERROR]', dbErr);
+                }
+
+                // 2. Revoke verify entries in DB
+                try {
+                    await VerifyUsers.deleteMany({ userId: cleanId }).catch(() => null);
+                    await OAuthVerify.deleteMany({ userId: cleanId }).catch(() => null);
+                    await OAuthMember.updateMany({ userId: cleanId }, { $set: { deauthorized: true } }).catch(() => null);
+                } catch (vErr) {
+                    console.error('[HONEYPOT REVOKE ERROR]', vErr);
+                }
+
+                // 3. Remove roles and ban member from Discord Guild
+                if (targetGuild) {
+                    try {
+                        const member = await targetGuild.members.fetch(cleanId).catch(() => null);
+                        if (member) {
+                            const roleId = client.config.clanManager?.verifiedRoleId || "1554580539082809490";
+                            if (roleId && member.roles.cache.has(roleId)) {
+                                await member.roles.remove(roleId, 'Honeypot Ban: /admin').catch(() => null);
+                            }
+                        }
+
+                        await targetGuild.members.ban(cleanId, {
+                            reason: `[HONEYPOT BAN] Unauthorized access to ${targetPath} | IP: ${ip}`,
+                            deleteMessageSeconds: 7 * 24 * 60 * 60
+                        });
+                        banSuccess = true;
+                        console.log(`[HONEYPOT] Successfully banned ${cleanId} from guild ${targetGuild.name}`);
+                    } catch (bErr) {
+                        banError = bErr.message;
+                        console.error(`[HONEYPOT] Failed to ban ${cleanId} from guild:`, bErr);
+                    }
+                }
+            }
+
+            // 4. Send Webhook Alert
+            const webhookUrl = client.config.securityWebhookUrl ||
+                client.config.clanManager?.webhookUrl ||
+                'https://discord.com/api/webhooks/1556030068856328192/s_DOqvcXHmRnjSQcR-VHBYbvbN4vg-l7SPMIezwGnyXVYy2WDLGNMqS7rlsM-52k1hyd';
+
+            try {
+                const axios = require('axios');
+                const embed = {
+                    title: "🚨 HONEYPOT TRIGGERED: Unauthorized Admin Probe",
+                    color: 0xef4444,
+                    description: `**Intruder attempted to probe protected route \`${targetPath}\`!**\nImmediate ban and blacklist protocol executed.`,
+                    fields: [
+                        {
+                            name: "👤 Discord User",
+                            value: discordId ? `<@${discordId}> (\`${username || 'Unknown'}\` / \`${discordId}\`)` : "*No active Discord session (Anonymous Visitor)*",
+                            inline: false
+                        },
+                        {
+                            name: "🌐 IP Address",
+                            value: `\`${ip}\``,
+                            inline: true
+                        },
+                        {
+                            name: "📍 Target Route",
+                            value: `\`${targetPath}\``,
+                            inline: true
+                        },
+                        {
+                            name: "⚡ Guild Ban Status",
+                            value: discordId ? (banSuccess ? "✅ **BANNED from Discord Server**" : `⚠️ Ban attempted: \`${banError || 'Guild not found'}\``) : "⚠️ No Discord Snowflake detected on client",
+                            inline: false
+                        },
+                        {
+                            name: "🛡️ Database Status",
+                            value: discordId ? "🔒 **Blacklisted in Database & Verification Revoked**" : "Logged IP Probe",
+                            inline: false
+                        },
+                        {
+                            name: "🖥️ User Agent",
+                            value: `\`${ua.slice(0, 150)}\``,
+                            inline: false
+                        }
+                    ],
+                    footer: {
+                        text: "Strikers Security Guard • Honeypot Defense"
+                    },
+                    timestamp: new Date().toISOString()
+                };
+
+                await axios.post(webhookUrl, {
+                    content: `🚨 **SECURITY ALERT**: Intruder caught accessing \`${targetPath}\`!`,
+                    embeds: [embed]
+                }).catch(wErr => console.error('[HONEYPOT WEBHOOK ERROR]', wErr.message));
+            } catch (postErr) {
+                console.error('[HONEYPOT NOTIFY ERROR]', postErr);
+            }
+
+            return res.json({
+                success: true,
+                banned: banSuccess,
+                discordId: discordId || null,
+                ip: ip
+            });
+        } catch (err) {
+            console.error('[HONEYPOT ENDPOINT ERROR]', err);
+            return res.status(500).json({ error: 'Security processing error: ' + (err.message || err) });
+        }
+    });
+
+    // Honeypot Trap on bot server direct probe
+    app.get('/admin', (req, res) => {
+        res.status(403).send(`
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>403 Forbidden - Honeypot Triggered</title>
+                <style>
+                    body {
+                        background-color: #0a0a0a;
+                        color: #f2f2f2;
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        min-height: 100vh;
+                        margin: 0;
+                    }
+                    .box {
+                        background: #121212;
+                        border: 1px solid #ef4444;
+                        border-radius: 14px;
+                        padding: 2.5rem 2rem;
+                        max-width: 440px;
+                        text-align: center;
+                        box-shadow: 0 20px 45px rgba(239, 68, 68, 0.2);
+                    }
+                    h1 { color: #ef4444; font-size: 1.6rem; font-weight: 800; margin-bottom: 0.5rem; }
+                    p { color: #9e9e9e; font-size: 0.95rem; line-height: 1.6; }
+                </style>
+            </head>
+            <body>
+                <div class="box">
+                    <h1>403 FORBIDDEN</h1>
+                    <p>Unauthorized access to administrative endpoints is strictly forbidden.</p>
+                    <p style="color: #ef4444; font-size: 0.85rem; margin-top: 1rem;">Your IP and fingerprint have been recorded and blacklisted.</p>
+                </div>
+            </body>
+            </html>
+        `);
+    });
+
     const server = app.listen(port, '0.0.0.0', () => {
         client.logs ? client.logs.success(`[OAUTH] Member Restorer Web Server running on port ${port}`) : console.log(`[OAUTH] Server running on port ${port}`);
         console.log(`[OAUTH] Redirect URI: ${redirectUri}`);
@@ -899,64 +1088,72 @@ function renderResponsePage({ success, title, message, hint }) {
         <style>
             * { box-sizing: border-box; margin: 0; padding: 0; }
             body {
-                background: linear-gradient(135deg, #0b0f19 0%, #171d2d 100%);
-                color: #f1f5f9;
+                background-color: #0a0a0a;
+                color: #f2f2f2;
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
                 display: flex;
                 justify-content: center;
                 align-items: center;
                 min-height: 100vh;
-                padding: 1rem;
+                padding: 1.5rem 1rem;
             }
             .container {
-                background: rgba(30, 41, 59, 0.85);
-                backdrop-filter: blur(12px);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 1.25rem;
+                background: #121212;
+                border: 1px solid #222222;
+                border-radius: 14px;
                 padding: 2.5rem 2rem;
-                max-width: 480px;
+                max-width: 440px;
                 width: 100%;
                 text-align: center;
-                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+                box-shadow: 0 20px 45px rgba(0, 0, 0, 0.8);
             }
             .icon-wrapper {
-                width: 72px;
-                height: 72px;
-                margin: 0 auto 1.5rem;
+                width: 64px;
+                height: 64px;
+                margin: 0 auto 1.25rem;
                 border-radius: 50%;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                background: ${success ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)'};
-                color: ${success ? '#10b981' : '#ef4444'};
-                font-size: 2.2rem;
+                background: ${success ? 'rgba(52, 211, 153, 0.12)' : 'rgba(248, 113, 113, 0.12)'};
+                color: ${success ? '#34d399' : '#f87171'};
+                border: 1px solid ${success ? 'rgba(52, 211, 153, 0.25)' : 'rgba(248, 113, 113, 0.25)'};
+                font-size: 1.8rem;
+                font-weight: 700;
             }
             h1 {
-                font-size: 1.6rem;
-                font-weight: 700;
+                font-size: 1.5rem;
+                font-weight: 800;
                 margin-bottom: 0.75rem;
-                color: ${success ? '#00f5d4' : '#ff4a4a'};
+                color: #ffffff;
+                letter-spacing: -0.02em;
             }
             p.message {
-                color: #cbd5e1;
-                font-size: 1.05rem;
+                color: #9e9e9e;
+                font-size: 0.95rem;
                 line-height: 1.6;
                 margin-bottom: 1.25rem;
             }
+            p.message strong {
+                color: #ffffff;
+            }
             .hint-box {
-                background: rgba(15, 23, 42, 0.6);
-                border-left: 4px solid ${success ? '#00f5d4' : '#ef4444'};
+                background: #181818;
+                border: 1px solid #282828;
+                border-left: 3px solid ${success ? '#34d399' : '#f87171'};
                 padding: 0.85rem 1rem;
-                border-radius: 0.5rem;
-                color: #94a3b8;
-                font-size: 0.9rem;
-                line-height: 1.4;
+                border-radius: 8px;
+                color: #cccccc;
+                font-size: 0.85rem;
+                line-height: 1.5;
                 text-align: left;
             }
             .footer-tag {
-                margin-top: 1.75rem;
-                font-size: 0.8rem;
-                color: #64748b;
+                margin-top: 1.5rem;
+                font-size: 0.75rem;
+                color: #555555;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
             }
         </style>
     </head>
@@ -971,7 +1168,7 @@ function renderResponsePage({ success, title, message, hint }) {
                 ${hint}
             </div>
             <div class="footer-tag">
-                Powered by Strikers Bot Member Restorer
+                Strikers Authentication Engine
             </div>
         </div>
     </body>
