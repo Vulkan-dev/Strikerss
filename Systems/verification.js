@@ -85,7 +85,8 @@ module.exports = (client) => {
                     try {
                         const targetRole = interaction.guild.roles.cache.get(verifydata.Role);
                         if (targetRole) {
-                            await interaction.member.roles.add(verifydata.Role);
+                            const { transitionToVerified } = require('../Utils/roleGuard');
+                            await transitionToVerified(interaction.member, verifydata.Role);
                             return await interaction.reply({
                                 content: `✅ **Welcome back!** You were already verified, so your <@&${verifydata.Role}> role has been restored!`,
                                 flags: MessageFlags.Ephemeral,
@@ -289,7 +290,8 @@ module.exports = (client) => {
                     try {
                         const targetRole = interaction.guild.roles.cache.get(verificationdata.Role);
                         if (targetRole) {
-                            await interaction.member.roles.add(verificationdata.Role);
+                            const { transitionToVerified } = require('../Utils/roleGuard');
+                            await transitionToVerified(interaction.member, verificationdata.Role);
                             return await interaction.reply({
                                 content: `✅ **Welcome back!** Your <@&${verificationdata.Role}> role has been restored!`,
                                 flags: MessageFlags.Ephemeral,

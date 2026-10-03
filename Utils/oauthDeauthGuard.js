@@ -5,9 +5,9 @@ const VerifyUsers = require('../Schemas/verifyusers');
 const { validateAndRefreshToken } = require('../Web/oauthHelper');
 const { EmbedBuilder } = require('discord.js');
 
-// In-memory cache for validated users to prevent rate limiting (valid for 10 minutes)
+// In-memory cache for validated users to prevent rate limiting (valid for 15 seconds for instant deauth response)
 const authValidationCache = new Map();
-const CACHE_TTL_MS = 10 * 60 * 1000;
+const CACHE_TTL_MS = 15 * 1000;
 
 /**
  * Gets the configured verified role ID for a guild
@@ -106,6 +106,10 @@ async function revokeVerification(client, userId, reason = 'Deauthorized bot') {
             await member.roles.remove(roleId, `[DEAUTH GUARD] ${reason}`);
             console.log(`[DEAUTH GUARD] Revoked verified role <@&${roleId}> from ${member.user.tag} (${userId}) in ${guild.name}`);
 
+            // Immediately assign Unverified role
+            const { assignUnverifiedRole } = require('./roleGuard');
+            await assignUnverifiedRole(member, `[DEAUTH GUARD] ${reason}`);
+
             // Send DM to the member to notify them
             try {
                 await member.send({
@@ -170,9 +174,11 @@ async function auditGuildVerifiedMembers(guild, client) {
             try {
                 await member.roles.remove(roleId, `[DEAUTH GUARD AUDIT] ${auth.reason}`);
                 await VerificationSchema.updateOne({ Guild: guild.id }, { $pull: { Verified: member.id } }).catch(() => {});
+                const { assignUnverifiedRole } = require('./roleGuard');
+                await assignUnverifiedRole(member, `[DEAUTH AUDIT] ${auth.reason}`);
                 revokedCount++;
                 revokedUsers.push({ id: member.id, tag: member.user.tag, reason: auth.reason });
-                console.log(`[AUDIT] Removed verified role from unauthorized member ${member.user.tag} (${member.id}) - Reason: ${auth.reason}`);
+                console.log(`[AUDIT] Removed verified role from unauthorized member ${member.user.tag} (${member.id}) and assigned Unverified - Reason: ${auth.reason}`);
             } catch (err) {
                 console.error(`[AUDIT] Failed to remove role from ${member.id}:`, err.message);
             }

@@ -1,6 +1,7 @@
 const { Events, EmbedBuilder } = require('discord.js');
 const { getVerifiedRoleId, checkUserAuthorization } = require('../../Utils/oauthDeauthGuard');
 const { isGuildActivated } = require('../../Utils/guildActivation');
+const { assignUnverifiedRole, removeUnverifiedRole } = require('../../Utils/roleGuard');
 
 module.exports = {
     name: Events.GuildMemberUpdate,
@@ -19,18 +20,33 @@ module.exports = {
             const hadRole = oldMember.roles.cache.has(verifiedRoleId);
             const hasRole = newMember.roles.cache.has(verifiedRoleId);
 
-            // Trigger ONLY when the verified role was newly added to this member
+            // 1. If Verified role was manually removed or lost by member:
+            // "if someone manually take role of verified that immediately assign unverified as fast as you can"
+            if (hadRole && !hasRole) {
+                console.log(`[VERIFY GUARD] Verified role was removed from ${newMember.user.tag} (${newMember.id}). Instantly assigning Unverified role.`);
+                await assignUnverifiedRole(newMember, 'Verified role was removed -> Instantly assigned Unverified');
+                return;
+            }
+
+            // 2. If Verified role was newly added to this member:
             if (!hadRole && hasRole) {
-                const auth = await checkUserAuthorization(newMember.id);
+                // Force check OAuth authorization (no cache delay)
+                const auth = await checkUserAuthorization(newMember.id, true);
 
                 if (!auth.authorized) {
                     console.warn(`[DEAUTH GUARD] Blocked unauthorized Verified role on ${newMember.user.tag} (${newMember.id}) - Reason: ${auth.reason}`);
 
-                    // Strip role immediately
+                    // Strip Verified role immediately
                     await newMember.roles.remove(
                         verifiedRoleId,
                         '[DEAUTH GUARD] Verified role requires active bot OAuth2 authorization.'
                     ).catch(() => {});
+
+                    // Immediately assign Unverified role
+                    await assignUnverifiedRole(
+                        newMember,
+                        '[DEAUTH GUARD] User not authorized with OAuth2 -> Assigned Unverified role.'
+                    );
 
                     // Send alert DM to user
                     try {
@@ -59,12 +75,15 @@ module.exports = {
                             .setColor('#ffaa00')
                             .setDescription(
                                 `**Member:** <@${newMember.id}> (${newMember.user.tag})\n` +
-                                `**Action:** Role <@&${verifiedRoleId}> was automatically revoked.\n` +
+                                `**Action:** Role <@&${verifiedRoleId}> was revoked & Unverified role assigned.\n` +
                                 `**Reason:** User is not authorized with the bot via OAuth2.`
                             )
                             .setTimestamp();
                         await logChannel.send({ embeds: [logEmbed] }).catch(() => {});
                     }
+                } else {
+                    // Valid authorized member got verified role: remove Unverified role
+                    await removeUnverifiedRole(newMember, 'Verified role confirmed -> Removed Unverified');
                 }
             }
         } catch (error) {

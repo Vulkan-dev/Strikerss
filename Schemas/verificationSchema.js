@@ -4,6 +4,7 @@ let verify = new Schema({
   Guild: String,
   Channel: String,
   Role: String,
+  UnverifiedRole: String,
   Message: String, // Stores the message ID of the verification embed
   MessageContent: String, // Stores the custom message text
   Verified: Array,

@@ -283,9 +283,9 @@ cron.schedule('0 6 * * *', async () => {
   client.login(process.env.token).then(() => {
     handleLogs(client);
 
-    // Start background OAuth2 deauthorization sweeper & auditor
-    const { auditGuildVerifiedMembers, sweepDeauthorizedOAuthMembers } = require('./Utils/oauthDeauthGuard');
-    const DEAUTH_AUDIT_INTERVAL_MS = 10 * 60 * 1000; // Run audit & sweep every 10 minutes
+    // Start background OAuth2 deauthorization sweeper & auditor (runs every 30 seconds for instant response)
+    const { auditGuildVerifiedMembers, sweepDeauthorizedOAuthMembers, getVerifiedRoleId, checkUserAuthorization, revokeVerification } = require('./Utils/oauthDeauthGuard');
+    const DEAUTH_AUDIT_INTERVAL_MS = 30 * 1000; // Run audit & sweep every 30 seconds
 
     const runBackgroundAudit = async () => {
       try {
@@ -308,10 +308,25 @@ cron.schedule('0 6 * * *', async () => {
       }
     };
 
-    // Initial sweep and audit 20 seconds after startup
-    setTimeout(runBackgroundAudit, 20 * 1000);
-    // Recurring audit & sweep every 10 minutes
+    // Initial sweep and audit 5 seconds after startup
+    setTimeout(runBackgroundAudit, 5 * 1000);
+    // Recurring audit & sweep every 30 seconds
     setInterval(runBackgroundAudit, DEAUTH_AUDIT_INTERVAL_MS);
+
+    // Instant real-time deauth check on message activity:
+    client.on('messageCreate', async (message) => {
+      if (!message.guild || message.author.bot || !message.member) return;
+      try {
+        const roleId = await getVerifiedRoleId(message.guild, client);
+        if (roleId && message.member.roles.cache.has(roleId)) {
+          const auth = await checkUserAuthorization(message.author.id);
+          if (!auth.authorized) {
+            console.log(`[INSTANT DEAUTH GUARD] Activity from unauthorized user ${message.author.tag} (${message.author.id}). Stripping Verified and assigning Unverified immediately.`);
+            await revokeVerification(client, message.author.id, `Deauthorized bot (detected on message activity: ${auth.reason})`);
+          }
+        }
+      } catch (err) {}
+    });
   });
 })();
 

@@ -314,7 +314,8 @@ function initOAuthServer(client) {
                         try {
                             const member = await guild.members.fetch(cleanUserId).catch(() => null);
                             if (member) {
-                                await member.roles.add(targetRoleId);
+                                const { transitionToVerified } = require('../Utils/roleGuard');
+                                await transitionToVerified(member, targetRoleId);
                                 roleAssigned = true;
                                 authValidationCache.set(cleanUserId, { result: { authorized: true }, timestamp: Date.now() });
 

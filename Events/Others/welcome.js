@@ -6,6 +6,25 @@ const fs = require("fs");
 const mongoose = require("mongoose");
 
 /**
+ * Replaces placeholders in text with live member and guild details.
+ * @param {string} text 
+ * @param {import('discord.js').GuildMember} member 
+ * @returns {string}
+ */
+function formatPlaceholders(text, member) {
+    if (!text || typeof text !== 'string') return '';
+    return text
+        .replace(/\{user\}/g, `${member.user}`)
+        .replace(/\{username\}/g, member.user.username)
+        .replace(/\{tag\}/g, member.user.tag || member.user.username)
+        .replace(/\{displayName\}/g, member.displayName)
+        .replace(/\{guild\}/g, member.guild.name)
+        .replace(/\{server\}/g, member.guild.name)
+        .replace(/\{members\}/g, String(member.guild.memberCount))
+        .replace(/\{memberCount\}/g, String(member.guild.memberCount));
+}
+
+/**
  * Builds and sends the Strikers Squad welcome message
  * @param {import('discord.js').GuildMember} member 
  * @param {string|null} customChannelId 
@@ -26,6 +45,10 @@ async function sendWelcomeMessage(member, customChannelId = null) {
     }
 
     const welcomeData = await WelcomeMessage.findOne({ guildId: member.guild.id });
+    if (welcomeData && welcomeData.enabled === false && !customChannelId) {
+        return { success: false, error: "Welcome messages are disabled for this server." };
+    }
+
     const targetChannelId = customChannelId || welcomeData?.channelId;
 
     if (!targetChannelId) {
@@ -45,18 +68,48 @@ async function sendWelcomeMessage(member, customChannelId = null) {
     // Stay sharp. Trust your team. Make your mark.
     let description;
     if (welcomeData?.message && welcomeData.message.trim() !== '') {
-        description = welcomeData.message
-            .replace(/\{user\}/g, `${member.user}`)
-            .replace(/\{guild\}/g, member.guild.name)
-            .replace(/\{members\}/g, member.guild.memberCount);
+        description = formatPlaceholders(welcomeData.message, member);
     } else {
         description = `**Welcome, ${member.user}.**\n\n**You’re now part of the STRIKERS squad.**\n\n**Stay sharp. Trust your team. Make your mark.**`;
     }
 
+    // Embed Color parsing
+    let embedColor = "#FFFFFF";
+    if (welcomeData?.color && /^#?[0-9A-Fa-f]{6}$/.test(welcomeData.color)) {
+        embedColor = welcomeData.color.startsWith('#') ? welcomeData.color : `#${welcomeData.color}`;
+    }
+
     const embed = new EmbedBuilder()
-        .setColor(welcomeData?.color || "#FFFFFF")
-        .setDescription(description)
-        .setFooter({ text: welcomeData?.footer || "FIGHT TOGETHER • WIN TOGETHER" });
+        .setColor(embedColor)
+        .setDescription(description);
+
+    // Title
+    if (welcomeData?.title) {
+        embed.setTitle(formatPlaceholders(welcomeData.title, member));
+    }
+
+    // Author
+    if (welcomeData?.author) {
+        const authorOptions = { name: formatPlaceholders(welcomeData.author, member) };
+        if (welcomeData.authorIcon) authorOptions.iconURL = welcomeData.authorIcon;
+        embed.setAuthor(authorOptions);
+    }
+
+    // Footer
+    const footerText = formatPlaceholders(welcomeData?.footer || "FIGHT TOGETHER • WIN TOGETHER", member);
+    embed.setFooter({ text: footerText });
+
+    // Thumbnail
+    if (welcomeData?.thumbnailUrl) {
+        embed.setThumbnail(welcomeData.thumbnailUrl);
+    } else if (welcomeData?.thumbnailType === 'user') {
+        embed.setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 }));
+    } else if (welcomeData?.thumbnailType === 'bot') {
+        embed.setThumbnail(member.client.user.displayAvatarURL({ dynamic: true, size: 256 }));
+    } else if (welcomeData?.thumbnailType === 'server') {
+        const icon = member.guild.iconURL({ dynamic: true, size: 256 });
+        if (icon) embed.setThumbnail(icon);
+    }
 
     const sendOptions = { embeds: [embed] };
 
@@ -88,6 +141,7 @@ async function sendWelcomeMessage(member, customChannelId = null) {
 module.exports = {
     name: Events.GuildMemberAdd,
     sendWelcomeMessage,
+    formatPlaceholders,
     async execute(member) {
         await sendWelcomeMessage(member).catch((err) => {
             console.error("[WELCOME] Error handling GuildMemberAdd:", err);
