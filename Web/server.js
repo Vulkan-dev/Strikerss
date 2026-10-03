@@ -12,17 +12,14 @@ function initOAuthServer(client) {
     const app = express();
     const port = process.env.PORT || client.config.oauth?.port || 3000;
 
-    // Auto-detect redirect URI: explicit env → Railway domain → localhost fallback
+    // Auto-detect redirect URI: explicit env → Railway domain → production Railway URL fallback
     const railwayDomain = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL;
     const redirectUri = process.env.REDIRECT_URI
         || (railwayDomain ? `https://${railwayDomain}/api/auth/callback` : null)
-        || `http://localhost:${port}/api/auth/callback`;
+        || 'https://strikerss-production.up.railway.app/api/auth/callback';
 
-    // Warn if falling back to localhost (OAuth won't work in production)
-    if (redirectUri.startsWith('http://localhost')) {
-        console.warn('[OAUTH] ⚠️  REDIRECT_URI is set to localhost! OAuth will not work in production.');
-        console.warn('[OAUTH] ⚠️  Set REDIRECT_URI=https://<your-railway-domain>/api/auth/callback in Railway variables.');
-    }
+    // Log configured redirect URI
+    console.log(`[OAUTH] Configured redirect URI: ${redirectUri}`);
 
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
@@ -552,6 +549,28 @@ function initOAuthServer(client) {
                 }
             }
 
+            // Extract Bio & Badges from Discord Data / User Flags
+            const bio = discordData?.bio || user?.bio || '';
+            const publicFlags = Number(discordData?.public_flags || discordData?.flags || user?.flags?.bitfield || 0);
+            const badges = [];
+
+            if (publicFlags & (1 << 0)) badges.push({ id: 'staff', name: 'Discord Staff', icon: '🛡️' });
+            if (publicFlags & (1 << 1)) badges.push({ id: 'partner', name: 'Partnered Server Owner', icon: '👑' });
+            if (publicFlags & (1 << 2)) badges.push({ id: 'hypesquad_events', name: 'HypeSquad Events', icon: '🎉' });
+            if (publicFlags & (1 << 3)) badges.push({ id: 'bughunter_1', name: 'Bug Hunter Level 1', icon: '🐛' });
+            if (publicFlags & (1 << 6)) badges.push({ id: 'bravery', name: 'HypeSquad Bravery', icon: '🟣' });
+            if (publicFlags & (1 << 7)) badges.push({ id: 'brilliance', name: 'HypeSquad Brilliance', icon: '🔴' });
+            if (publicFlags & (1 << 8)) badges.push({ id: 'balance', name: 'HypeSquad Balance', icon: '🟢' });
+            if (publicFlags & (1 << 9)) badges.push({ id: 'early_supporter', name: 'Early Supporter', icon: '⭐' });
+            if (publicFlags & (1 << 14)) badges.push({ id: 'bughunter_2', name: 'Bug Hunter Level 2', icon: '🪲' });
+            if (publicFlags & (1 << 17)) badges.push({ id: 'early_dev', name: 'Early Verified Bot Developer', icon: '⚙️' });
+            if (publicFlags & (1 << 18)) badges.push({ id: 'moderator', name: 'Certified Moderator', icon: '⚜️' });
+            if (publicFlags & (1 << 22)) badges.push({ id: 'active_dev', name: 'Active Developer', icon: '💎' });
+
+            if (avatarUrl?.endsWith('.gif') || bannerUrl || decorationUrl) {
+                badges.push({ id: 'nitro', name: 'Nitro Subscriber', icon: '🚀' });
+            }
+
             const formattedCreatedDate = createdAt.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 
             return res.json({
@@ -568,6 +587,8 @@ function initOAuthServer(client) {
                 avatar_decoration_url: decorationUrl,
                 accentColor,
                 accent_color: accentColor,
+                bio,
+                badges,
                 createdAt: createdAt.toISOString(),
                 created_at: createdAt.toISOString(),
                 createdAtFormatted: formattedCreatedDate,
