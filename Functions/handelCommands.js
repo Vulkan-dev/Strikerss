@@ -32,22 +32,23 @@ module.exports = (client) => {
         const rest = new REST({ version: '10' }).setToken(process.env.token);
 
         try {
+            // 1. Clear any guild-scoped commands to prevent duplicate command entries in servers
             const targetGuildId = process.env.serverId || process.env.CLAN_GUILD_ID;
             if (targetGuildId) {
                 await rest.put(
                     Routes.applicationGuildCommands(process.env.clientId, targetGuildId),
-                    { body: client.commandArray }
-                );
-                client.logs ? client.logs.success(`[SLASH_COMMANDS] Guild slash commands registered for guild ${targetGuildId}.`)
-                            : console.log(`[SLASH_COMMANDS] Guild slash commands registered for guild ${targetGuildId}.`);
+                    { body: [] }
+                ).catch(() => {});
+                console.log(`[SLASH_COMMANDS] Cleared guild commands for ${targetGuildId} to prevent duplicates.`);
             }
 
+            // 2. Deploy exclusively as global commands
             await rest.put(
                 Routes.applicationCommands(process.env.clientId),
                 { body: client.commandArray }
             );
-            client.logs ? client.logs.success(`[SLASH_COMMANDS] Application commands registered globally.`)
-                        : console.log(`[SLASH_COMMANDS] Application commands registered globally.`);
+            client.logs ? client.logs.success(`[SLASH_COMMANDS] Application commands registered globally (${client.commandArray.length} unique commands).`)
+                        : console.log(`[SLASH_COMMANDS] Application commands registered globally (${client.commandArray.length} unique commands).`);
         } catch (error) {
             console.error('[SLASH_COMMANDS ERROR]', error.message || error);
         }
