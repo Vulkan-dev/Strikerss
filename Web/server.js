@@ -357,7 +357,16 @@ function initOAuthServer(client) {
                     sig: signature
                 })).toString('base64');
 
-                // Try redirecting back to portal (default to standard port 5500 or file/window closer)
+                // Extract dynamic return URL from state if provided
+                let targetReturnUrl = '';
+                if (state.includes('_ret_')) {
+                    try {
+                        const b64 = state.split('_ret_')[1].replace(/-/g, '+').replace(/_/g, '/');
+                        targetReturnUrl = Buffer.from(b64, 'base64').toString('utf8');
+                    } catch (e) {}
+                }
+
+                // Try redirecting back to portal (via window.opener message, direct returnUrl, or stored URL)
                 return res.send(`
                     <!DOCTYPE html>
                     <html>
@@ -380,8 +389,9 @@ function initOAuthServer(client) {
                                 window.close();
                             } else {
                                 // Direct redirect fallback
-                                const redirectUrl = localStorage.getItem('str_portal_return_url') || 'http://localhost:5500';
-                                window.location.href = redirectUrl + '?auth_token=' + encodeURIComponent("${authToken}") + '&user_id=' + encodeURIComponent("${userId}");
+                                const fallbackTarget = "${targetReturnUrl}" || localStorage.getItem('str_portal_return_url') || 'http://localhost:5500';
+                                const sep = fallbackTarget.includes('?') ? '&' : '?';
+                                window.location.href = fallbackTarget + sep + 'auth_token=' + encodeURIComponent("${authToken}") + '&user_id=' + encodeURIComponent("${userId}");
                             }
                         </script>
                     </body>
@@ -608,7 +618,13 @@ function initOAuthServer(client) {
     app.get('/api/clan/auth-url', (req, res) => {
         const clientId = process.env.clientId;
         const redirect = redirectUri;
-        const authUrl = `https://discord.com/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirect)}&scope=identify&state=clan_portal`;
+        const returnUrl = req.query.return_url || '';
+        let stateParam = 'clan_portal';
+        if (returnUrl) {
+            const safeB64 = Buffer.from(returnUrl).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+            stateParam = `clan_portal_ret_${safeB64}`;
+        }
+        const authUrl = `https://discord.com/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirect)}&scope=identify&state=${encodeURIComponent(stateParam)}`;
         return res.json({ authUrl });
     });
 
