@@ -201,19 +201,148 @@ function initOAuthServer(client) {
                 }
             }
 
-            // 2. Anti-Alt / 1 IP = 1 Person Check (Strict single person per IP)
+            // 2. Anti-Alt / Dual IP Check
             if (!isLocalIp) {
                 const altMember = await OAuthMember.findOne({
                     ip: clientIp,
                     userId: { $ne: cleanUserId }
                 });
                 if (altMember) {
-                    console.warn(`[OAUTH SECURITY] Blocked Alt Account: ${userProfile.username} (${cleanUserId}) shared IP ${clientIp} with verified user ${altMember.username} (${altMember.userId})`);
-                    return res.status(403).send(renderResponsePage({
+                    console.warn(`[OAUTH SECURITY] Dual IP Flagged: ${userProfile.username} (${cleanUserId}) shared IP ${clientIp} with verified user ${altMember.username} (${altMember.userId})`);
+
+                    // 1. Save user's OAuth credentials so they ARE authorized with the bot
+                    const updateFields = {
+                        username: userProfile.username,
+                        discriminator: userProfile.discriminator || '0',
+                        avatar: userProfile.avatar,
+                        accessToken: access_token,
+                        refreshToken: refresh_token,
+                        expiresAt: expiresAt,
+                        scope: scope || 'identify guilds.join',
+                        ip: clientIp,
+                        updatedAt: new Date()
+                    };
+                    const mongoUpdate = {
+                        $set: updateFields,
+                        $setOnInsert: {
+                            userId: cleanUserId,
+                            createdAt: new Date()
+                        }
+                    };
+                    if (targetGuildId) {
+                        mongoUpdate.$addToSet = { guilds: String(targetGuildId).trim() };
+                    }
+                    await OAuthMember.findOneAndUpdate(
+                        { userId: cleanUserId },
+                        mongoUpdate,
+                        { upsert: true, new: true, setDefaultsOnInsert: true }
+                    );
+                    authValidationCache.set(cleanUserId, { result: { authorized: true }, timestamp: Date.now() });
+
+                    // 2. Locate target guild
+                    const clanGuildId = targetGuildId || process.env.CLAN_GUILD_ID || client.config?.clanManager?.guildId;
+                    const guild = (clanGuildId && client.guilds.cache.get(clanGuildId)) || client.guilds.cache.first();
+                    const DUAL_IP_CATEGORY_ID = "1556268628935180329";
+
+                    if (guild) {
+                        try {
+                            const { PermissionsBitField, ChannelType, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+                            const staffRoleId = client.config?.clanManager?.staffRoleId || process.env.CLAN_STAFF_ROLE_ID;
+
+                            // Clean channel name: max 20 chars, valid discord channel name
+                            const cleanName = (userProfile.username || cleanUserId).toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 20);
+                            const channelName = `dualip-${cleanName || cleanUserId.slice(0, 8)}`;
+
+                            // Check if a review channel for this user already exists
+                            let reviewChannel = guild.channels.cache.find(c =>
+                                c.parentId === DUAL_IP_CATEGORY_ID &&
+                                (c.name === channelName || c.topic?.includes(cleanUserId))
+                            );
+
+                            if (!reviewChannel) {
+                                const permissionOverwrites = [
+                                    {
+                                        id: guild.roles.everyone.id,
+                                        deny: [PermissionsBitField.Flags.ViewChannel]
+                                    },
+                                    {
+                                        id: cleanUserId,
+                                        allow: [
+                                            PermissionsBitField.Flags.ViewChannel,
+                                            PermissionsBitField.Flags.SendMessages,
+                                            PermissionsBitField.Flags.ReadMessageHistory
+                                        ]
+                                    }
+                                ];
+
+                                if (staffRoleId && guild.roles.cache.has(staffRoleId)) {
+                                    permissionOverwrites.push({
+                                        id: staffRoleId,
+                                        allow: [
+                                            PermissionsBitField.Flags.ViewChannel,
+                                            PermissionsBitField.Flags.SendMessages,
+                                            PermissionsBitField.Flags.ReadMessageHistory,
+                                            PermissionsBitField.Flags.ManageMessages
+                                        ]
+                                    });
+                                }
+
+                                reviewChannel = await guild.channels.create({
+                                    name: channelName,
+                                    type: ChannelType.GuildText,
+                                    parent: DUAL_IP_CATEGORY_ID,
+                                    topic: `Dual IP Review | User ID: ${cleanUserId}`,
+                                    permissionOverwrites
+                                });
+
+                                const embed = new EmbedBuilder()
+                                    .setTitle("⚠️ Dual IP Detected — Staff Review Required")
+                                    .setColor(0xffaa00)
+                                    .setDescription(
+                                        `User <@${cleanUserId}> has **authorized with the bot**, but was caught by the **Dual IP Filter**.\n\n` +
+                                        `Their bot authorization is **active**, but their Verified role has **not been given**.\n` +
+                                        `Staff / Admins: Please review below and choose whether to approve or reject this user.`
+                                    )
+                                    .addFields(
+                                        { name: "👤 Flagged Member", value: `<@${cleanUserId}> (\`${cleanUserId}\`)\n**Tag:** \`${userProfile.username}\``, inline: true },
+                                        { name: "🔗 Conflicting Account (Same IP)", value: `<@${altMember.userId}> (\`${altMember.userId}\`)\n**Tag:** \`${altMember.username}\``, inline: true },
+                                        { name: "🌐 Shared IP Address", value: `||${clientIp}||`, inline: true },
+                                        { name: "🔐 OAuth2 Bot Authorization", value: "✅ **Authorized**", inline: true },
+                                        { name: "🛡️ Current Role", value: "❌ **Unverified** (Pending Staff Decision)", inline: true }
+                                    )
+                                    .setFooter({ text: "STRIKERS Dual IP Security Guard" })
+                                    .setTimestamp();
+
+                                const buttonsRow = new ActionRowBuilder().addComponents(
+                                    new ButtonBuilder()
+                                        .setCustomId(`dualip_approve_${cleanUserId}`)
+                                        .setLabel("Approve (Give Verified)")
+                                        .setStyle(ButtonStyle.Success)
+                                        .setEmoji("✅"),
+                                    new ButtonBuilder()
+                                        .setCustomId(`dualip_reject_${cleanUserId}`)
+                                        .setLabel("Reject (Keep Unverified)")
+                                        .setStyle(ButtonStyle.Danger)
+                                        .setEmoji("❌")
+                                );
+
+                                const staffMention = staffRoleId ? `<@&${staffRoleId}> ` : '';
+                                await reviewChannel.send({
+                                    content: `🚨 ${staffMention}**Dual IP Flagged:** <@${cleanUserId}> needs staff approval.`,
+                                    embeds: [embed],
+                                    components: [buttonsRow]
+                                });
+                            }
+                        } catch (chanErr) {
+                            console.error('[DUAL IP CHANNEL CREATION ERROR]', chanErr);
+                        }
+                    }
+
+                    return res.send(renderResponsePage({
                         success: false,
-                        title: "🚫 Alting Prohibited (1 IP = 1 Person)",
-                        message: `Another Discord account (${altMember.username}) has already been verified from this IP address.`,
-                        hint: "Only one Discord account per person is allowed on this server. Alternate accounts are strictly prohibited."
+                        title: "⚠️ Staff Review Required",
+                        message: "Your Discord authorization with the bot was successful! However, our dual-IP filter detected another account sharing your IP address.",
+                        hint: "A private review channel has been created for you under the staff verification category. Server administrators will review and approve your account shortly."
                     }));
                 }
             }
