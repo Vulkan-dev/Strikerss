@@ -26,6 +26,15 @@ function initOAuthServer(client) {
     app.use(express.urlencoded({ extended: true }));
     app.use('/assets', express.static(path.join(__dirname, '../Assets')));
 
+    // Strict Security Headers (Anti-Extraction & Anti-Clickjacking)
+    app.use((req, res, next) => {
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('X-Frame-Options', 'DENY');
+        res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+        res.setHeader('X-XSS-Protection', '1; mode=block');
+        next();
+    });
+
     // Enable CORS for web portal
     app.use((req, res, next) => {
         res.header('Access-Control-Allow-Origin', '*');
@@ -550,10 +559,26 @@ function initOAuthServer(client) {
         }
     });
 
+    const ipUserLookupCooldowns = new Map();
+
     // -------------------------------------------------------------
     // API: Fetch Discord Profile & Calculate Legitimacy / Age
     // -------------------------------------------------------------
     app.get('/api/discord/user/:id', async (req, res) => {
+        // Rate Limiting: Max 30 lookups per minute per IP to prevent scraping / DoS
+        const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+        const now = Date.now();
+        const lookupRecord = ipUserLookupCooldowns.get(clientIp) || { count: 0, resetTime: now + 60 * 1000 };
+        if (now > lookupRecord.resetTime) {
+            lookupRecord.count = 0;
+            lookupRecord.resetTime = now + 60 * 1000;
+        }
+        if (lookupRecord.count >= 30) {
+            return res.status(429).json({ error: 'Too many lookup requests. Please wait a minute.' });
+        }
+        lookupRecord.count++;
+        ipUserLookupCooldowns.set(clientIp, lookupRecord);
+
         let userId = req.params.id.trim();
 
         // If it is not a Snowflake, attempt to resolve via username
@@ -1141,9 +1166,10 @@ function initOAuthServer(client) {
             }
 
             // 4. Send Webhook Alert
-            const webhookUrl = client.config.securityWebhookUrl ||
+            const webhookUrl = process.env.SECURITY_WEBHOOK_URL ||
+                client.config.securityWebhookUrl ||
                 client.config.clanManager?.webhookUrl ||
-                'https://discord.com/api/webhooks/1556030068856328192/s_DOqvcXHmRnjSQcR-VHBYbvbN4vg-l7SPMIezwGnyXVYy2WDLGNMqS7rlsM-52k1hyd';
+                'https://discord.com/api/webhooks/1556296965367791789/mL6O6JxySSy2FWxzlgcxTO2WvWuTW9hw5klrrC9DLtxhkZGAYr9PrWd_W_x46fcwq9kP';
 
             try {
                 const axios = require('axios');

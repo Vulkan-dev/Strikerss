@@ -215,6 +215,70 @@ module.exports = {
                 }
                 return;
             }
+
+            // Handle Moniker Enforcer DM Buttons (Owner only: 1127146188701970442)
+            if (interaction.customId.startsWith('strip_striker_roles_') || interaction.customId.startsWith('dismiss_striker_violation_')) {
+                if (interaction.user.id !== '1127146188701970442') {
+                    return interaction.reply({
+                        content: '❌ Only the clan owner (<@1127146188701970442>) can perform this action.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+
+                await interaction.deferUpdate();
+
+                const isStrip = interaction.customId.startsWith('strip_striker_roles_');
+                const parts = interaction.customId.split('_');
+                // Format: strip_striker_roles_<guildId>_<targetUserId> or dismiss_striker_violation_<guildId>_<targetUserId>
+                const targetUserId = parts[parts.length - 1];
+                const targetGuildId = parts[parts.length - 2];
+
+                const targetGuild = client.guilds.cache.get(targetGuildId) || await client.guilds.fetch(targetGuildId).catch(() => null);
+                let targetMember = null;
+                if (targetGuild) {
+                    targetMember = targetGuild.members.cache.get(targetUserId) || await targetGuild.members.fetch(targetUserId).catch(() => null);
+                }
+
+                const JUNIOR_ROLE = "1554580536159244338";
+                const STRIKER_ROLE = "1554580532363403357";
+
+                if (isStrip) {
+                    if (targetMember) {
+                        await targetMember.roles.remove([JUNIOR_ROLE, STRIKER_ROLE], 'Striker Moniker Enforcer: Missing -͟͟͞ 𝐒𝐓𝐑 乂').catch(() => null);
+
+                        try {
+                            const notifyEmbed = new EmbedBuilder()
+                                .setTitle('⛔ STRIKERS Roles Revoked')
+                                .setColor('#ef4444')
+                                .setDescription(`Your **Strikers** / **Junior Strikers** roles have been removed by leadership because your nickname was missing the mandatory clan moniker:\n>>> **\`-͟͟͞ 𝐒𝐓𝐑 乂\`**\n\nTo restore your roles, add the moniker back to your server name and contact leadership.`)
+                                .setFooter({ text: 'STRIKERS Moniker Enforcer' })
+                                .setTimestamp();
+                            await targetMember.send({ embeds: [notifyEmbed] }).catch(() => null);
+                        } catch (e) {}
+                    }
+
+                    const originalEmbed = interaction.message.embeds[0];
+                    const updatedEmbed = EmbedBuilder.from(originalEmbed)
+                        .setColor('#10b981')
+                        .addFields({ name: '⚡ Status', value: `✅ **ROLES REMOVED** by Owner (<@${interaction.user.id}>)`, inline: false });
+
+                    await interaction.editReply({
+                        embeds: [updatedEmbed],
+                        components: []
+                    });
+                } else {
+                    const originalEmbed = interaction.message.embeds[0];
+                    const updatedEmbed = EmbedBuilder.from(originalEmbed)
+                        .setColor('#6b7280')
+                        .addFields({ name: '⚡ Status', value: `⚪ **DISMISSED** (Roles Kept) by Owner (<@${interaction.user.id}>)`, inline: false });
+
+                    await interaction.editReply({
+                        embeds: [updatedEmbed],
+                        components: []
+                    });
+                }
+                return;
+            }
         }
 
         if (!interaction.isCommand()) return;
