@@ -46,6 +46,35 @@ function initOAuthServer(client) {
         next();
     });
 
+    // In-memory fast IP ban cache
+    const bannedIpCache = new Set();
+    Blacklist.find({ ip: { $ne: null } }).select('ip').then(records => {
+        records.forEach(r => { if (r.ip) bannedIpCache.add(r.ip); });
+        console.log(`[SECURITY] Loaded ${bannedIpCache.size} blacklisted IP(s) into memory cache.`);
+    }).catch(() => null);
+
+    // Global IP Blacklist Enforcement Middleware
+    app.use((req, res, next) => {
+        if (req.path === '/api/security/check-ban' || req.path === '/api/security/honeypot-ban' || req.path === '/admin' || req.path === '/') {
+            return next();
+        }
+        const rawForwarded = req.headers['x-forwarded-for'];
+        const ip = (rawForwarded ? String(rawForwarded).split(',')[0].trim() : null) ||
+            req.headers['cf-connecting-ip'] ||
+            req.headers['x-real-ip'] ||
+            req.socket.remoteAddress || '';
+        const cleanIp = String(ip).replace(/^::ffff:/, '').trim();
+
+        if (cleanIp && cleanIp !== '127.0.0.1' && cleanIp !== '::1' && bannedIpCache.has(cleanIp)) {
+            return res.status(403).json({
+                error: '403 Forbidden - Your IP has been permanently blacklisted from the STRIKERS network.',
+                banned: true,
+                ip: cleanIp
+            });
+        }
+        next();
+    });
+
     // Status endpoint
     app.get('/', (req, res) => {
         res.send(`
@@ -1096,12 +1125,35 @@ function initOAuthServer(client) {
         try {
             const { discordId, username, ip: clientIp, userAgent, path: probedPath, reason } = req.body || {};
             const rawForwarded = req.headers['x-forwarded-for'];
-            const ip = clientIp || (rawForwarded ? String(rawForwarded).split(',')[0].trim() : null) || req.headers['cf-connecting-ip'] || req.socket.remoteAddress || 'Unknown IP';
+            const rawIp = clientIp || (rawForwarded ? String(rawForwarded).split(',')[0].trim() : null) || req.headers['cf-connecting-ip'] || req.socket.remoteAddress || 'Unknown IP';
+            const cleanIp = String(rawIp).replace(/^::ffff:/, '').trim();
             const ua = userAgent || req.headers['user-agent'] || 'Unknown';
             const targetPath = probedPath || '/admin';
             const banReason = reason || `Honeypot Triggered: Unauthorized access to ${targetPath}`;
 
-            console.warn(`[HONEYPOT ALERT] Unauthorized visit to ${targetPath} detected! IP: ${ip}, User: ${username || 'Unknown'} (${discordId || 'No ID'})`);
+            console.warn(`[HONEYPOT ALERT] Unauthorized visit to ${targetPath} detected! IP: ${cleanIp}, User: ${username || 'Unknown'} (${discordId || 'No ID'})`);
+
+            // 1. Blacklist IP in MongoDB and Fast In-Memory Cache (ALWAYS, even if visitor is anonymous)
+            let ipBanned = false;
+            if (cleanIp && cleanIp !== 'Unknown IP' && cleanIp !== '127.0.0.1' && cleanIp !== '::1') {
+                bannedIpCache.add(cleanIp);
+                try {
+                    await Blacklist.findOneAndUpdate(
+                        { ip: cleanIp },
+                        {
+                            ip: cleanIp,
+                            userId: (discordId && /^\d{17,20}$/.test(String(discordId).trim())) ? String(discordId).trim() : null,
+                            reason: banReason,
+                            timestamp: new Date()
+                        },
+                        { upsert: true, new: true }
+                    );
+                    ipBanned = true;
+                    console.log(`[HONEYPOT] Blacklisted IP ${cleanIp} in MongoDB and memory cache.`);
+                } catch (ipErr) {
+                    console.error('[HONEYPOT IP DB ERROR]', ipErr);
+                }
+            }
 
             // Find target guild
             let targetGuild = null;
@@ -1116,15 +1168,20 @@ function initOAuthServer(client) {
             let banSuccess = false;
             let banError = null;
 
-            // If Discord ID is present, ban from Discord and Blacklist
+            // If Discord ID is present, ban from Discord and Blacklist User
             if (discordId && /^\d{17,20}$/.test(String(discordId).trim())) {
                 const cleanId = String(discordId).trim();
 
-                // 1. Blacklist in MongoDB
+                // 2. Blacklist User in MongoDB
                 try {
                     await Blacklist.findOneAndUpdate(
                         { userId: cleanId },
-                        { userId: cleanId, reason: banReason },
+                        {
+                            userId: cleanId,
+                            ip: (cleanIp && cleanIp !== 'Unknown IP') ? cleanIp : null,
+                            reason: banReason,
+                            timestamp: new Date()
+                        },
                         { upsert: true, new: true }
                     );
                     console.log(`[HONEYPOT] Blacklisted user ${cleanId} in MongoDB.`);
@@ -1132,7 +1189,7 @@ function initOAuthServer(client) {
                     console.error('[HONEYPOT DB ERROR]', dbErr);
                 }
 
-                // 2. Revoke verify entries in DB
+                // 3. Revoke verify entries in DB
                 try {
                     await VerifyUsers.deleteMany({ userId: cleanId }).catch(() => null);
                     await OAuthVerify.deleteMany({ userId: cleanId }).catch(() => null);
@@ -1141,7 +1198,7 @@ function initOAuthServer(client) {
                     console.error('[HONEYPOT REVOKE ERROR]', vErr);
                 }
 
-                // 3. Remove roles and ban member from Discord Guild
+                // 4. Remove roles and ban member from Discord Guild
                 if (targetGuild) {
                     try {
                         const member = await targetGuild.members.fetch(cleanId).catch(() => null);
@@ -1153,7 +1210,7 @@ function initOAuthServer(client) {
                         }
 
                         await targetGuild.members.ban(cleanId, {
-                            reason: `[HONEYPOT BAN] Unauthorized access to ${targetPath} | IP: ${ip}`,
+                            reason: `[HONEYPOT BAN] Unauthorized access to ${targetPath} | IP: ${cleanIp}`,
                             deleteMessageSeconds: 7 * 24 * 60 * 60
                         });
                         banSuccess = true;
@@ -1165,7 +1222,7 @@ function initOAuthServer(client) {
                 }
             }
 
-            // 4. Send Webhook Alert
+            // 5. Send Webhook Alert
             const webhookUrl = process.env.SECURITY_WEBHOOK_URL ||
                 client.config.securityWebhookUrl ||
                 client.config.clanManager?.webhookUrl ||
@@ -1176,7 +1233,7 @@ function initOAuthServer(client) {
                 const embed = {
                     title: "🚨 HONEYPOT TRIGGERED: Unauthorized Admin Probe",
                     color: 0xef4444,
-                    description: `**Intruder attempted to probe protected route \`${targetPath}\`!**\nImmediate ban and blacklist protocol executed.`,
+                    description: `**Intruder attempted to probe protected route \`${targetPath}\`!**\nImmediate IP ban and blacklist protocol executed.`,
                     fields: [
                         {
                             name: "👤 Discord User",
@@ -1185,8 +1242,8 @@ function initOAuthServer(client) {
                         },
                         {
                             name: "🌐 IP Address",
-                            value: `\`${ip}\``,
-                            inline: true
+                            value: `\`${cleanIp}\` (Status: ${ipBanned ? "⛔ **PERMANENTLY BLACKLISTED**" : "Recorded"})`,
+                            inline: false
                         },
                         {
                             name: "📍 Target Route",
@@ -1200,7 +1257,7 @@ function initOAuthServer(client) {
                         },
                         {
                             name: "🛡️ Database Status",
-                            value: discordId ? "🔒 **Blacklisted in Database & Verification Revoked**" : "Logged IP Probe",
+                            value: "🔒 **Blacklisted in Database & Cached in Memory**",
                             inline: false
                         },
                         {
@@ -1225,9 +1282,11 @@ function initOAuthServer(client) {
 
             return res.json({
                 success: true,
-                banned: banSuccess,
+                banned: true,
+                guildBanned: banSuccess,
+                ipBanned: ipBanned,
                 discordId: discordId || null,
-                ip: ip
+                ip: cleanIp
             });
         } catch (err) {
             console.error('[HONEYPOT ENDPOINT ERROR]', err);
@@ -1235,8 +1294,76 @@ function initOAuthServer(client) {
         }
     });
 
+    // Endpoint: Check if caller's IP or Discord user ID is blacklisted
+    app.get('/api/security/check-ban', async (req, res) => {
+        try {
+            const rawForwarded = req.headers['x-forwarded-for'];
+            const ip = req.query.ip ||
+                (rawForwarded ? String(rawForwarded).split(',')[0].trim() : null) ||
+                req.headers['cf-connecting-ip'] ||
+                req.headers['x-real-ip'] ||
+                req.socket.remoteAddress || '';
+            const cleanIp = String(ip).replace(/^::ffff:/, '').trim();
+
+            const queryUserId = req.query.discordId ? String(req.query.discordId).trim() : null;
+
+            let isBanned = false;
+            let banReason = null;
+
+            // 1. In-memory IP cache check
+            if (cleanIp && cleanIp !== '127.0.0.1' && cleanIp !== '::1' && bannedIpCache.has(cleanIp)) {
+                isBanned = true;
+                banReason = 'Your IP address has been permanently blacklisted from the STRIKERS network.';
+            }
+
+            // 2. Database check for IP
+            if (!isBanned && cleanIp && cleanIp !== '127.0.0.1' && cleanIp !== '::1') {
+                const ipBan = await Blacklist.findOne({ ip: cleanIp });
+                if (ipBan) {
+                    bannedIpCache.add(cleanIp);
+                    isBanned = true;
+                    banReason = ipBan.reason || 'Your IP address has been permanently blacklisted from the STRIKERS network.';
+                }
+            }
+
+            // 3. Database check for Discord ID if provided
+            if (!isBanned && queryUserId && /^\d{17,20}$/.test(queryUserId)) {
+                const userBan = await Blacklist.findOne({ userId: queryUserId });
+                if (userBan) {
+                    isBanned = true;
+                    banReason = userBan.reason || 'Your Discord account has been blacklisted from the STRIKERS network.';
+                }
+            }
+
+            return res.json({
+                banned: isBanned,
+                ip: cleanIp || 'Unknown',
+                reason: banReason
+            });
+        } catch (err) {
+            console.error('[CHECK-BAN ERROR]', err);
+            return res.status(500).json({ error: 'Ban check failed', banned: false });
+        }
+    });
+
     // Honeypot Trap on bot server direct probe
-    app.get('/admin', (req, res) => {
+    app.get('/admin', async (req, res) => {
+        const rawForwarded = req.headers['x-forwarded-for'];
+        const ip = (rawForwarded ? String(rawForwarded).split(',')[0].trim() : null) ||
+            req.headers['cf-connecting-ip'] ||
+            req.headers['x-real-ip'] ||
+            req.socket.remoteAddress || '';
+        const cleanIp = String(ip).replace(/^::ffff:/, '').trim();
+
+        if (cleanIp && cleanIp !== '127.0.0.1' && cleanIp !== '::1') {
+            bannedIpCache.add(cleanIp);
+            Blacklist.findOneAndUpdate(
+                { ip: cleanIp },
+                { ip: cleanIp, reason: 'Direct probe on /admin route', timestamp: new Date() },
+                { upsert: true }
+            ).catch(() => null);
+        }
+
         res.status(403).send(`
             <!DOCTYPE html>
             <html lang="en">
