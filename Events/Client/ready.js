@@ -113,6 +113,24 @@ module.exports = {
             console.error('[VERIFY SYNC ERROR]:', err.message);
         }
 
+        // Auto-sync slash commands to every connected guild for instant 0-second registration
+        if (client.commandArray && client.commandArray.length > 0) {
+            const { REST, Routes } = require('discord.js');
+            const rest = new REST({ version: '10' }).setToken(process.env.token);
+            for (const guild of client.guilds.cache.values()) {
+                try {
+                    await rest.put(
+                        Routes.applicationGuildCommands(client.user.id, guild.id),
+                        { body: client.commandArray }
+                    );
+                    client.logs ? client.logs.success(`[SLASH_COMMANDS] Instantly synced ${client.commandArray.length} slash commands to guild: "${guild.name}" (${guild.id}).`)
+                                : console.log(`[SLASH_COMMANDS] Instantly synced ${client.commandArray.length} slash commands to guild: "${guild.name}" (${guild.id}).`);
+                } catch (cmdErr) {
+                    console.warn(`[SLASH_COMMANDS] Could not sync guild commands to "${guild.name}" (${guild.id}): ${cmdErr.message}`);
+                }
+            }
+        }
+
         require('events').EventEmitter.defaultMaxListeners = config.eventListeners;
     },
 };

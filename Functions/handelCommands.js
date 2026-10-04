@@ -32,17 +32,20 @@ module.exports = (client) => {
         const rest = new REST({ version: '10' }).setToken(process.env.token);
 
         try {
-            // 1. Clear any guild-scoped commands to prevent duplicate command entries in servers
+            // 1. Deploy directly as guild commands for target guild for INSTANT 0-second availability
             const targetGuildId = process.env.serverId || process.env.CLAN_GUILD_ID;
             if (targetGuildId) {
                 await rest.put(
                     Routes.applicationGuildCommands(process.env.clientId, targetGuildId),
-                    { body: [] }
-                ).catch(() => {});
-                console.log(`[SLASH_COMMANDS] Cleared guild commands for ${targetGuildId} to prevent duplicates.`);
+                    { body: client.commandArray }
+                ).catch((err) => {
+                    console.error(`[SLASH_COMMANDS] Failed to register guild commands for ${targetGuildId}:`, err.message);
+                });
+                client.logs ? client.logs.success(`[SLASH_COMMANDS] Guild slash commands registered instantly for guild ${targetGuildId} (${client.commandArray.length} commands).`)
+                            : console.log(`[SLASH_COMMANDS] Guild slash commands registered instantly for guild ${targetGuildId} (${client.commandArray.length} commands).`);
             }
 
-            // 2. Deploy exclusively as global commands
+            // 2. Also deploy globally so all future and external servers receive them
             await rest.put(
                 Routes.applicationCommands(process.env.clientId),
                 { body: client.commandArray }

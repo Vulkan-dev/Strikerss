@@ -23,7 +23,6 @@ module.exports = {
         .setName("verify")
         .setDescription("Verification system management and simulation.")
         .setDMPermission(false)
-        .setDefaultMemberPermissions(PermissionsBitField.Flags.ManageGuild)
         .addSubcommand(sub =>
             sub
                 .setName("sim")
