@@ -9,6 +9,40 @@ const { EmbedBuilder } = require('discord.js');
 const authValidationCache = new Map();
 const CACHE_TTL_MS = 15 * 1000;
 
+// In-memory grace map for simulated verification: userId -> { guildId, expiresAt }
+const simulationGraceCache = new Map();
+
+function setSimulationGrace(userId, guildId, durationMs = 180000) {
+    const expiresAt = Date.now() + durationMs;
+    simulationGraceCache.set(String(userId).trim(), { guildId: String(guildId).trim(), expiresAt });
+    return expiresAt;
+}
+
+function hasSimulationGrace(userId) {
+    const cleanId = String(userId).trim();
+    const entry = simulationGraceCache.get(cleanId);
+    if (!entry) return false;
+    if (Date.now() > entry.expiresAt) {
+        simulationGraceCache.delete(cleanId);
+        return false;
+    }
+    return true;
+}
+
+function clearSimulationGrace(userId) {
+    simulationGraceCache.delete(String(userId).trim());
+}
+
+function getOAuthAuthorizeUrl(client, guildId, userId) {
+    const clientId = client?.user?.id || process.env.clientId;
+    const railwayDomain = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL;
+    const redirectUri = process.env.REDIRECT_URI
+        || (railwayDomain ? `https://${railwayDomain}/api/auth/callback` : null)
+        || 'https://strikerss-production.up.railway.app/api/auth/callback';
+    const state = `${guildId}_${userId}`;
+    return `https://discord.com/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=identify%20guilds.join&state=${encodeURIComponent(state)}`;
+}
+
 /**
  * Gets the configured verified role ID for a guild
  */
@@ -169,6 +203,9 @@ async function auditGuildVerifiedMembers(guild, client) {
     const revokedUsers = [];
 
     for (const member of verifiedMembers.values()) {
+        if (hasSimulationGrace(member.id)) {
+            continue;
+        }
         const auth = await checkUserAuthorization(member.id, true);
         if (!auth.authorized) {
             try {
@@ -240,5 +277,9 @@ module.exports = {
     revokeVerification,
     auditGuildVerifiedMembers,
     sweepDeauthorizedOAuthMembers,
-    authValidationCache
+    authValidationCache,
+    setSimulationGrace,
+    hasSimulationGrace,
+    clearSimulationGrace,
+    getOAuthAuthorizeUrl
 };

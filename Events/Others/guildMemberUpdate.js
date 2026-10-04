@@ -1,5 +1,5 @@
 const { Events, EmbedBuilder } = require('discord.js');
-const { getVerifiedRoleId, checkUserAuthorization } = require('../../Utils/oauthDeauthGuard');
+const { getVerifiedRoleId, checkUserAuthorization, hasSimulationGrace } = require('../../Utils/oauthDeauthGuard');
 const { isGuildActivated } = require('../../Utils/guildActivation');
 const { assignUnverifiedRole, removeUnverifiedRole } = require('../../Utils/roleGuard');
 
@@ -30,6 +30,13 @@ module.exports = {
 
             // 2. If Verified role was newly added to this member:
             if (!hadRole && hasRole) {
+                // If member has active simulation grace, allow them time to complete bot authorization
+                if (hasSimulationGrace(newMember.id)) {
+                    console.log(`[SIMULATION GUARD] ${newMember.user.tag} (${newMember.id}) has active simulation grace. Skipping immediate revocation.`);
+                    await removeUnverifiedRole(newMember, 'Simulation active -> Removed Unverified role');
+                    return;
+                }
+
                 // Force check OAuth authorization (no cache delay)
                 const auth = await checkUserAuthorization(newMember.id, true);
 
