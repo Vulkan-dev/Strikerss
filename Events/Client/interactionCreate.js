@@ -1,5 +1,5 @@
 const mongoose = require("mongoose");
-const { MessageFlags, ActionRowBuilder } = require("discord.js");
+const { MessageFlags, ActionRowBuilder, EmbedBuilder } = require("discord.js");
 const Premium = require("../../Schemas/premiumUserSchema");
 const PremiumGuild = require("../../Schemas/premiumGuildSchema");
 
@@ -83,6 +83,96 @@ module.exports = {
                     setTimeout(async () => {
                         await interaction.channel.delete().catch(() => null);
                     }, 10000);
+                }
+                return;
+            }
+
+            // Handle Dual IP Filter Review Buttons (Approve / Reject)
+            if (interaction.customId.startsWith('dualip_approve_') || interaction.customId.startsWith('dualip_reject_')) {
+                const isApprove = interaction.customId.startsWith('dualip_approve_');
+                const targetUserId = interaction.customId.replace(isApprove ? 'dualip_approve_' : 'dualip_reject_', '');
+
+                // Check staff permission
+                const staffRoleId = client.config.clanManager?.staffRoleId || process.env.CLAN_STAFF_ROLE_ID;
+                const hasStaffRole = staffRoleId && interaction.member.roles.cache.has(staffRoleId);
+                const isAdmin = interaction.member.permissions.has('Administrator') ||
+                                interaction.member.permissions.has('ManageGuild') ||
+                                interaction.user.id === interaction.guild.ownerId ||
+                                interaction.user.id === (process.env.developerId || '1127146188701970442');
+
+                if (!hasStaffRole && !isAdmin) {
+                    return interaction.reply({
+                        content: '❌ Only administrators or clan staff can review this flagged user.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+
+                // Disable review buttons immediately to prevent duplicate actions
+                try {
+                    const updatedComponents = interaction.message.components.map(row => {
+                        const builder = ActionRowBuilder.from(row);
+                        builder.components.forEach(c => c.setDisabled(true));
+                        return builder;
+                    });
+                    await interaction.update({ components: updatedComponents }).catch(() => {});
+                } catch (e) {}
+
+                const targetMember = await interaction.guild.members.fetch(targetUserId).catch(() => null);
+                const { getVerifiedRoleId, clearSimulationGrace, authValidationCache } = require('../../Utils/oauthDeauthGuard');
+                const { transitionToVerified, transitionToUnverified } = require('../../Utils/roleGuard');
+                const verifiedRoleId = await getVerifiedRoleId(interaction.guild, client);
+
+                if (isApprove) {
+                    if (targetMember && verifiedRoleId) {
+                        await transitionToVerified(targetMember, verifiedRoleId);
+                    }
+                    clearSimulationGrace(targetUserId);
+                    authValidationCache.set(targetUserId, { result: { authorized: true }, timestamp: Date.now() });
+
+                    // Mark verified in VerificationSchema / VerifyUsers
+                    const VerificationSchema = require('../../Schemas/verificationSchema');
+                    const VerifyUsers = require('../../Schemas/verifyusers');
+                    await VerificationSchema.updateOne(
+                        { Guild: interaction.guild.id },
+                        { $addToSet: { Verified: targetUserId } }
+                    ).catch(() => {});
+                    await VerifyUsers.deleteOne({ Guild: interaction.guild.id, User: targetUserId }).catch(() => {});
+
+                    await interaction.followUp({
+                        content: `✅ <@${targetUserId}> has been **APPROVED** by <@${interaction.user.id}>!\nTheir **Unverified** role has been removed and <@&${verifiedRoleId}> role has been assigned.`
+                    });
+
+                    // DM user confirmation
+                    if (targetMember) {
+                        try {
+                            const approveEmbed = new EmbedBuilder()
+                                .setTitle(`✅ Verification Approved in ${interaction.guild.name}`)
+                                .setColor(0x10b981)
+                                .setDescription(`Server staff have approved your verification review!\nYour **Verified** role (<@&${verifiedRoleId}>) has been assigned. You now have full access to **${interaction.guild.name}**!`)
+                                .setTimestamp();
+                            await targetMember.send({ embeds: [approveEmbed] }).catch(() => {});
+                        } catch (e) {}
+                    }
+                } else {
+                    if (targetMember && verifiedRoleId) {
+                        await transitionToUnverified(targetMember, verifiedRoleId, 'Dual IP verification rejected by staff');
+                    }
+
+                    await interaction.followUp({
+                        content: `❌ <@${targetUserId}> has been **REJECTED** by <@${interaction.user.id}>.\nThey will remain **Unverified**.`
+                    });
+
+                    // DM user notification
+                    if (targetMember) {
+                        try {
+                            const rejectEmbed = new EmbedBuilder()
+                                .setTitle(`❌ Verification Rejected in ${interaction.guild.name}`)
+                                .setColor(0xff3333)
+                                .setDescription(`Your verification review in **${interaction.guild.name}** was rejected by server staff due to dual IP / multi-account policy.`)
+                                .setTimestamp();
+                            await targetMember.send({ embeds: [rejectEmbed] }).catch(() => {});
+                        } catch (e) {}
+                    }
                 }
                 return;
             }

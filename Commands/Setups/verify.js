@@ -241,7 +241,7 @@ module.exports = {
                 });
             }
 
-            await interaction.deferReply();
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
             try {
                 // 1. Mark simulated portal intake in MongoDB
@@ -281,7 +281,9 @@ module.exports = {
                         .setFooter({ text: "STRIKERS Verification Engine • Simulation Mode" })
                         .setTimestamp();
 
-                    await interaction.editReply({ embeds: [embed] });
+                    await interaction.editReply({
+                        content: `✅ Successfully simulated verification for <@${targetMember.id}> (*${targetUser.tag}*).\n🔐 They already have active bot authorization. Confirmation has been sent to their **DMs**.`
+                    });
 
                     try {
                         await targetMember.send({
@@ -337,31 +339,28 @@ module.exports = {
                     .setFooter({ text: "STRIKERS Verification Engine • Role Reversal Guard Active" })
                     .setTimestamp();
 
-                await interaction.editReply({
-                    content: `🔔 <@${targetMember.id}> Your verification was simulated! Please authorize with the bot below to keep your role.`,
-                    embeds: [embed],
-                    components: [row]
-                });
-
-                // DM notification to target user
+                // Send message directly to user DM instead of server channel
+                let dmSent = false;
                 try {
-                    const dmEmbed = new EmbedBuilder()
-                        .setTitle(`⚡ Action Required: Authorize with Bot in ${interaction.guild.name}`)
-                        .setColor(0xffaa00)
-                        .setDescription(
-                            `Your verification in **${interaction.guild.name}** was simulated by staff.\n\n` +
-                            `⚠️ **IMPORTANT REQUIREMENT:**\n` +
-                            `You have **3 minutes** (<t:${expiresTimestampSec}:R>) to click **Authorize with Bot** below.\n\n` +
-                            `If you do not complete authorization before time runs out, your **Verified** role will automatically **reverse back to Unverified**!`
-                        )
-                        .setFooter({ text: "Strikers OAuth2 Security Guard" })
-                        .setTimestamp();
-
                     await targetMember.send({
-                        embeds: [dmEmbed],
+                        content: `🔔 <@${targetMember.id}> Your verification was simulated in **${interaction.guild.name}**! Please authorize with the bot below to keep your role.`,
+                        embeds: [embed],
                         components: [row]
                     });
-                } catch (e) {}
+                    dmSent = true;
+                } catch (dmErr) {
+                    console.warn(`[VERIFY SIM] Could not DM user ${targetMember.id}:`, dmErr.message);
+                }
+
+                if (dmSent) {
+                    await interaction.editReply({
+                        content: `✅ Simulated verification for <@${targetMember.id}> (*${targetUser.tag}*).\n📨 The authorization button and 3-minute timer embed have been sent **directly to their DMs**!`
+                    });
+                } else {
+                    await interaction.editReply({
+                        content: `⚠️ Simulated verification for <@${targetMember.id}>, but their **DMs are closed**!\nTemporary role assigned. They must authorize within 3 minutes using this link:\n${authUrl}`
+                    });
+                }
 
                 // Schedule the 3-minute grace expiration check
                 setTimeout(async () => {
