@@ -5,6 +5,7 @@ const OAuthVerify = require('../Schemas/oauthVerifySchema');
 const VerificationSchema = require('../Schemas/verificationSchema');
 const VerifyUsers = require('../Schemas/verifyusers');
 const Blacklist = require('../Schemas/blacklistSchema');
+const ClanApplication = require('../Schemas/clanApplicationSchema');
 const { exchangeCode, fetchUserProfile } = require('./oauthHelper');
 const { checkIp } = require('../Utils/antiVpn');
 const { revokeVerification, authValidationCache } = require('../Utils/oauthDeauthGuard');
@@ -821,6 +822,288 @@ function initOAuthServer(client) {
         }
     }
 
+    // Helper: Generate Signed Auth Token for Verified DM Code Logins
+    function generateAuthToken(userId, username) {
+        const crypto = require('crypto');
+        const secret = process.env.clientSecret || 'clan_secret_key';
+        const timestamp = Date.now();
+        const sigPayload = `${userId}:${username}:${timestamp}`;
+        const sig = crypto.createHmac('sha256', secret).update(sigPayload).digest('hex');
+        const tokenObj = { userId, username, timestamp, sig };
+        return Buffer.from(JSON.stringify(tokenObj)).toString('base64');
+    }
+
+    // In-memory verification code store & rate limiters
+    const loginCodes = new Map(); // discordId -> { code, expiresAt, attempts, hasVerifiedRole, cleanIp }
+    const codeRateLimits = new Map(); // cleanIp -> { count, resetTime }
+
+    // -------------------------------------------------------------
+    // API: Clan Member DM Verification Code Generator (Login / Sign-in)
+    // Inspects if user exists in Discord Server and sends 6-digit code to DM
+    // -------------------------------------------------------------
+    app.post('/api/clan/send-code', async (req, res) => {
+        try {
+            const { discordId } = req.body || {};
+            if (!discordId) {
+                return res.status(400).json({ error: 'Please enter your Discord User ID or Username.' });
+            }
+
+            const rawForwarded = req.headers['x-forwarded-for'];
+            const rawIp = (rawForwarded ? String(rawForwarded).split(',')[0].trim() : null) ||
+                req.headers['cf-connecting-ip'] ||
+                req.headers['x-real-ip'] ||
+                req.socket.remoteAddress || 'unknown';
+            const cleanIp = String(rawIp).replace(/^::ffff:/, '').trim();
+
+            const now = Date.now();
+
+            // Rate Limit: Max 4 code requests per 10 minutes per IP
+            const rlRecord = codeRateLimits.get(cleanIp) || { count: 0, resetTime: now + 10 * 60 * 1000 };
+            if (now > rlRecord.resetTime) {
+                rlRecord.count = 0;
+                rlRecord.resetTime = now + 10 * 60 * 1000;
+            }
+            if (rlRecord.count >= 4) {
+                const waitMin = Math.ceil((rlRecord.resetTime - now) / 60000);
+                return res.status(429).json({ error: `Too many code requests. Please wait ${waitMin} minute(s) before requesting again.` });
+            }
+            rlRecord.count++;
+            codeRateLimits.set(cleanIp, rlRecord);
+
+            // Locate Target Guild
+            let targetGuild = null;
+            if (client.config.clanManager?.guildId) {
+                targetGuild = client.guilds.cache.get(client.config.clanManager.guildId) ||
+                    await client.guilds.fetch(client.config.clanManager.guildId).catch(() => null);
+            }
+            if (!targetGuild) {
+                targetGuild = client.guilds.cache.first();
+            }
+
+            if (!targetGuild) {
+                return res.status(500).json({ error: 'Bot is currently not connected to the clan server.' });
+            }
+
+            // Find member in server by ID or username
+            let inputId = String(discordId).trim();
+            let member = null;
+
+            if (/^\d{17,20}$/.test(inputId)) {
+                member = await targetGuild.members.fetch(inputId).catch(() => null);
+            } else {
+                const query = inputId.toLowerCase();
+                member = targetGuild.members.cache.find(m =>
+                    m.user.username.toLowerCase() === query ||
+                    m.user.globalName?.toLowerCase() === query ||
+                    m.user.tag.toLowerCase() === query
+                );
+            }
+
+            // 1. Inspect if user exists in the server
+            if (!member) {
+                return res.status(404).json({
+                    error: "You are not a member of the STRIKERS Discord server. You must join our Discord server first before verifying.",
+                    inServer: false
+                });
+            }
+
+            const cleanUserId = member.id;
+
+            // 2. Duplicate Application Check: 1 form filled limit
+            const existingApp = await ClanApplication.findOne({
+                $or: [
+                    { discordId: cleanUserId },
+                    { ip: cleanIp }
+                ]
+            });
+            if (existingApp) {
+                return res.status(409).json({
+                    error: "An application has already been submitted for this account or IP. Duplicate submissions are strictly blocked to prevent spamming.",
+                    alreadySubmitted: true,
+                    submittedAt: existingApp.submittedAt,
+                    inServer: true
+                });
+            }
+
+            // 3. Inspect if member has Verified Role
+            const verifiedRoleId = client.config.clanManager?.verifiedRoleId || "1554580539082809490";
+            const hasVerifiedRole = member.roles.cache.has(verifiedRoleId);
+
+            // If user does NOT have verified role: proceed, but send webhook notification to server
+            if (!hasVerifiedRole) {
+                const webhookUrl = process.env.SECURITY_WEBHOOK_URL ||
+                    client.config.securityWebhookUrl ||
+                    client.config.clanManager?.webhookUrl;
+                if (webhookUrl) {
+                    const axios = require('axios');
+                    axios.post(webhookUrl, {
+                        embeds: [{
+                            title: "⚠️ Unverified Member Portal Login Request",
+                            color: 0xf59e0b,
+                            description: `Member <@${cleanUserId}> (\`${member.user.tag}\`) is in the server but does **not** have the Verified role. They have requested a login verification code on the portal.`,
+                            fields: [
+                                { name: "👤 User", value: `<@${cleanUserId}> (\`${cleanUserId}\`)`, inline: true },
+                                { name: "🌐 Client IP", value: `\`${cleanIp}\``, inline: true },
+                                { name: "🏷️ Server Roles", value: member.roles.cache.filter(r => r.name !== '@everyone').map(r => r.name).slice(0, 8).join(', ') || 'No custom roles', inline: false },
+                                { name: "🛡️ Action", value: "Allowed to log in & submit with Unverified status (Staff notification dispatched)", inline: false }
+                            ],
+                            footer: { text: "STRIKERS Sentry Guard • Portal Auth" },
+                            timestamp: new Date().toISOString()
+                        }]
+                    }).catch(wErr => console.error('[UNVERIFIED LOGIN WEBHOOK ERROR]', wErr.message));
+                }
+            }
+
+            // 4. Generate random 6-digit code
+            const code = Math.floor(100000 + Math.random() * 900000).toString();
+            loginCodes.set(cleanUserId, {
+                code,
+                expiresAt: now + 10 * 60 * 1000,
+                attempts: 0,
+                hasVerifiedRole,
+                cleanIp
+            });
+
+            // 5. Send DM to User
+            try {
+                const { EmbedBuilder } = require('discord.js');
+                const dmEmbed = new EmbedBuilder()
+                    .setTitle("⚡ STRIKERS Clan Portal — Login Code")
+                    .setColor(0x3b82f6)
+                    .setDescription([
+                        `Hello **${member.user.username}**,`,
+                        "",
+                        "Here is your 6-digit verification code to sign in to the **STRIKERS Member Verification Portal**:",
+                        "",
+                        `# \`\`\`${code}\`\`\``,
+                        "",
+                        "⏱️ This code will expire in **10 minutes**.",
+                        "🔒 **Never share this code with anyone.** Clan staff will never ask for your login code."
+                    ].join("\n"))
+                    .setFooter({ text: "STRIKERS Identity Guard" })
+                    .setTimestamp();
+
+                await member.send({ embeds: [dmEmbed] });
+            } catch (dmErr) {
+                console.warn(`[DM SEND ERROR] Could not DM user ${cleanUserId}:`, dmErr.message);
+                return res.status(403).json({
+                    error: "Could not send the verification code to your Discord DM. Please enable 'Allow direct messages from server members' in your Discord Privacy Settings (User Settings > Privacy & Safety) and try again.",
+                    dmFailed: true,
+                    inServer: true
+                });
+            }
+
+            return res.json({
+                success: true,
+                message: "A 6-digit verification code was sent to your Discord Direct Messages!",
+                discordId: cleanUserId,
+                username: member.user.username,
+                hasVerifiedRole
+            });
+        } catch (err) {
+            console.error('[SEND-CODE ERROR]', err);
+            return res.status(500).json({ error: 'Failed to process verification code: ' + (err.message || err) });
+        }
+    });
+
+    // -------------------------------------------------------------
+    // API: Clan Member Verification Code Confirmation
+    // Validates 6-digit code, logs user in, and returns signed session token
+    // -------------------------------------------------------------
+    app.post('/api/clan/verify-code', async (req, res) => {
+        try {
+            const { discordId, code } = req.body || {};
+            if (!discordId || !code) {
+                return res.status(400).json({ error: 'Discord ID and 6-digit verification code are required.' });
+            }
+
+            const cleanUserId = String(discordId).trim();
+            const cleanCode = String(code).trim();
+
+            const record = loginCodes.get(cleanUserId);
+            if (!record) {
+                return res.status(400).json({ error: 'No active verification code found for this user. Please request a new code.' });
+            }
+
+            if (Date.now() > record.expiresAt) {
+                loginCodes.delete(cleanUserId);
+                return res.status(400).json({ error: 'Verification code has expired. Please request a new one.' });
+            }
+
+            record.attempts = (record.attempts || 0) + 1;
+            if (record.attempts > 5) {
+                loginCodes.delete(cleanUserId);
+                return res.status(429).json({ error: 'Too many incorrect attempts. Please request a new verification code.' });
+            }
+
+            if (record.code !== cleanCode) {
+                return res.status(400).json({ error: `Incorrect verification code. (${5 - record.attempts} attempts remaining)` });
+            }
+
+            // Code is valid! Consume it
+            loginCodes.delete(cleanUserId);
+
+            // Fetch member & profile
+            let targetGuild = null;
+            if (client.config.clanManager?.guildId) {
+                targetGuild = client.guilds.cache.get(client.config.clanManager.guildId) ||
+                    await client.guilds.fetch(client.config.clanManager.guildId).catch(() => null);
+            }
+            if (!targetGuild) targetGuild = client.guilds.cache.first();
+
+            let member = targetGuild ? await targetGuild.members.fetch(cleanUserId).catch(() => null) : null;
+            let user = member?.user || await client.users.fetch(cleanUserId).catch(() => null);
+
+            if (!user) {
+                return res.status(404).json({ error: 'User not found in Discord.' });
+            }
+
+            // Calculate account age
+            const epoch = 1420070400000n;
+            const createdAtTimestamp = Number((BigInt(cleanUserId) >> 22n) + epoch);
+            const createdAt = new Date(createdAtTimestamp);
+            const diffTime = Math.abs(Date.now() - createdAt);
+            const accountAgeDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+            const accountAgeMonths = parseFloat((accountAgeDays / 30.4375).toFixed(1));
+            const isEligible = accountAgeDays >= 90;
+
+            const verifiedRoleId = client.config.clanManager?.verifiedRoleId || "1554580539082809490";
+            const hasVerifiedRole = member ? member.roles.cache.has(verifiedRoleId) : record.hasVerifiedRole;
+
+            // Generate signed authToken
+            const authToken = generateAuthToken(cleanUserId, user.username);
+
+            // Avatar, Banner, Decoration
+            const avatarUrl = user.displayAvatarURL ? user.displayAvatarURL({ extension: 'png', size: 512, forceStatic: false }) : 'https://cdn.discordapp.com/embed/avatars/0.png';
+            const bannerUrl = user.bannerURL ? user.bannerURL({ extension: 'png', size: 1024, forceStatic: false }) : null;
+            const decorationUrl = user.avatarDecorationURL ? user.avatarDecorationURL() : null;
+
+            return res.json({
+                success: true,
+                authToken,
+                userProfile: {
+                    id: cleanUserId,
+                    discordId: cleanUserId,
+                    username: user.username,
+                    globalName: user.globalName || user.username,
+                    avatarUrl,
+                    bannerUrl,
+                    decorationUrl,
+                    accentColor: user.hexAccentColor || '#121212',
+                    createdAt: createdAt.toISOString(),
+                    accountAgeDays,
+                    accountAgeMonths,
+                    isEligible,
+                    inServer: true,
+                    hasVerifiedRole
+                }
+            });
+        } catch (err) {
+            console.error('[VERIFY-CODE ERROR]', err);
+            return res.status(500).json({ error: 'Verification failed: ' + (err.message || err) });
+        }
+    });
+
     // -------------------------------------------------------------
     // API: Clan Auth URL generator
     // -------------------------------------------------------------
@@ -859,18 +1142,38 @@ function initOAuthServer(client) {
             return res.status(400).json({ error: 'Discord ID and Username are required.' });
         }
 
+        const rawForwarded = req.headers['x-forwarded-for'];
+        const clientIp = (rawForwarded ? String(rawForwarded).split(',')[0].trim() : null) ||
+            req.headers['cf-connecting-ip'] ||
+            req.headers['x-real-ip'] ||
+            req.socket.remoteAddress || 'unknown';
+        const cleanIp = String(clientIp).replace(/^::ffff:/, '').trim();
+        const cleanUserId = String(discordId).trim();
+
+        // Anti-Duplicate Proof: 1 Form Filled Limit (Checks MongoDB)
+        const duplicateQuery = (cleanIp && cleanIp !== 'unknown')
+            ? { $or: [{ discordId: cleanUserId }, { ip: cleanIp }] }
+            : { discordId: cleanUserId };
+        const existingApp = await ClanApplication.findOne(duplicateQuery);
+        if (existingApp) {
+            return res.status(409).json({
+                error: 'An application has already been submitted for this Discord account or IP. Duplicate submissions are strictly blocked to prevent spamming.',
+                alreadySubmitted: true,
+                submittedAt: existingApp.submittedAt
+            });
+        }
+
         // Anti-Nuking / Anti-Abuse Authorization Check
         // Allow if valid authToken, OR if recorded in MongoDB, OR if user is a member of the clan guild
         let isAuthorized = verifyAuthToken(authToken, discordId);
         if (!isAuthorized) {
-            const dbRecord = await OAuthMember.findOne({ userId: String(discordId).trim() });
+            const dbRecord = await OAuthMember.findOne({ userId: cleanUserId });
             if (dbRecord) isAuthorized = true;
         }
 
         // Rate Limiting: IP Level (Max 5 submissions per 15 minutes per IP)
-        const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
         const now = Date.now();
-        const ipRecord = ipApplyCooldowns.get(clientIp) || { count: 0, resetTime: now + 15 * 60 * 1000 };
+        const ipRecord = ipApplyCooldowns.get(cleanIp) || { count: 0, resetTime: now + 15 * 60 * 1000 };
         if (now > ipRecord.resetTime) {
             ipRecord.count = 0;
             ipRecord.resetTime = now + 15 * 60 * 1000;
@@ -1053,6 +1356,24 @@ function initOAuthServer(client) {
                 embeds: [embed],
                 components: [row]
             });
+
+            // Record successful application in MongoDB to guarantee 1 form filled limit
+            try {
+                await ClanApplication.create({
+                    discordId: String(discordId).trim(),
+                    ip: cleanIp || 'unknown',
+                    username: username,
+                    age: age,
+                    hasMic: hasMic,
+                    favouriteGame: favouriteGame,
+                    gamesPlayed: Array.isArray(gamesPlayed) ? gamesPlayed : [gamesPlayed],
+                    clanMoniker: clanMoniker || null,
+                    channelId: channel.id,
+                    submittedAt: new Date()
+                });
+            } catch (dbAppErr) {
+                console.error('[CLAN APPLICATION RECORD ERROR]', dbAppErr.message);
+            }
 
             return res.json({
                 success: true,
