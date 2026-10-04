@@ -916,14 +916,7 @@ function initOAuthServer(client) {
                     { ip: cleanIp }
                 ]
             });
-            if (existingApp) {
-                return res.status(409).json({
-                    error: "An application has already been submitted for this account or IP. Duplicate submissions are strictly blocked to prevent spamming.",
-                    alreadySubmitted: true,
-                    submittedAt: existingApp.submittedAt,
-                    inServer: true
-                });
-            }
+            const hasExistingApplication = !!existingApp;
 
             // 3. Inspect if member has Verified Role
             const verifiedRoleId = client.config.clanManager?.verifiedRoleId || "1554580539082809490";
@@ -954,13 +947,14 @@ function initOAuthServer(client) {
                 }
             }
 
-            // 4. Generate random 6-digit code
+            // 4. Generate random 6-digit code (1 minute expiration)
             const code = Math.floor(100000 + Math.random() * 900000).toString();
             loginCodes.set(cleanUserId, {
                 code,
-                expiresAt: now + 10 * 60 * 1000,
+                expiresAt: now + 60 * 1000,
                 attempts: 0,
                 hasVerifiedRole,
+                hasExistingApplication,
                 cleanIp
             });
 
@@ -977,7 +971,7 @@ function initOAuthServer(client) {
                         "",
                         `# \`\`\`${code}\`\`\``,
                         "",
-                        "⏱️ This code will expire in **10 minutes**.",
+                        "⏱️ This code will expire in **1 minute (60 seconds)**.",
                         "🔒 **Never share this code with anyone.** Clan staff will never ask for your login code."
                     ].join("\n"))
                     .setFooter({ text: "STRIKERS Identity Guard" })
@@ -1027,7 +1021,7 @@ function initOAuthServer(client) {
 
             if (Date.now() > record.expiresAt) {
                 loginCodes.delete(cleanUserId);
-                return res.status(400).json({ error: 'Verification code has expired. Please request a new one.' });
+                return res.status(400).json({ error: 'Verification code has expired (1 minute limit). Please request a new one.' });
             }
 
             record.attempts = (record.attempts || 0) + 1;
@@ -1041,6 +1035,7 @@ function initOAuthServer(client) {
             }
 
             // Code is valid! Consume it
+            const wasExistingApp = Boolean(record.hasExistingApplication);
             loginCodes.delete(cleanUserId);
 
             // Fetch member & profile
@@ -1070,6 +1065,11 @@ function initOAuthServer(client) {
             const verifiedRoleId = client.config.clanManager?.verifiedRoleId || "1554580539082809490";
             const hasVerifiedRole = member ? member.roles.cache.has(verifiedRoleId) : record.hasVerifiedRole;
 
+            // Check if applicant already has a submitted application or moniker on file
+            const existingApp = await ClanApplication.findOne({ discordId: cleanUserId }).catch(() => null);
+            const hasExistingApplication = wasExistingApp || !!existingApp;
+            const existingMoniker = existingApp?.clanMoniker || null;
+
             // Generate signed authToken
             const authToken = generateAuthToken(cleanUserId, user.username);
 
@@ -1081,6 +1081,8 @@ function initOAuthServer(client) {
             return res.json({
                 success: true,
                 authToken,
+                hasExistingApplication,
+                existingMoniker,
                 userProfile: {
                     id: cleanUserId,
                     discordId: cleanUserId,
@@ -1156,10 +1158,12 @@ function initOAuthServer(client) {
             : { discordId: cleanUserId };
         const existingApp = await ClanApplication.findOne(duplicateQuery);
         if (existingApp) {
-            return res.status(409).json({
-                error: 'An application has already been submitted for this Discord account or IP. Duplicate submissions are strictly blocked to prevent spamming.',
+            return res.status(200).json({
+                success: true,
                 alreadySubmitted: true,
-                submittedAt: existingApp.submittedAt
+                message: 'Your application has already been submitted and is currently on file. Proceeding to Name Maker!',
+                submittedAt: existingApp.submittedAt,
+                clanMoniker: existingApp.clanMoniker || null
             });
         }
 
@@ -1189,9 +1193,10 @@ function initOAuthServer(client) {
         // Rate Limiting: User Level (Cooldown of 15 minutes per Discord account)
         const lastApplied = userApplyCooldowns.get(discordId);
         if (lastApplied && (now - lastApplied) < 15 * 60 * 1000) {
-            const minutesLeft = Math.ceil((15 * 60 * 1000 - (now - lastApplied)) / 60000);
-            return res.status(429).json({
-                error: `An application was recently submitted for your account. Please wait ${minutesLeft} minute(s) before applying again.`
+            return res.status(200).json({
+                success: true,
+                alreadySubmitted: true,
+                message: 'Your application was recently submitted and is active in our system. Proceeding to Name Maker!'
             });
         }
         userApplyCooldowns.set(discordId, now);
