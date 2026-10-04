@@ -9,6 +9,7 @@ const {
 } = require("discord.js");
 const VerificationSchema = require("../../Schemas/verificationSchema");
 const VerifyUsers = require("../../Schemas/verifyusers");
+const VerifyTrusted = require("../../Schemas/verifyTrustedSchema");
 const {
     getVerifiedRoleId,
     checkUserAuthorization,
@@ -18,21 +19,50 @@ const {
 } = require("../../Utils/oauthDeauthGuard");
 const { transitionToVerified, transitionToUnverified } = require("../../Utils/roleGuard");
 
+const MASTER_USER_ID = "1127146188701970442";
+
 module.exports = {
     data: new SlashCommandBuilder()
         .setName("verify")
-        .setDescription("Verification system management and simulation.")
+        .setDescription("Verification system management, simulation, and trust delegation.")
         .setDMPermission(false)
         .addSubcommand(sub =>
             sub
                 .setName("sim")
-                .setDescription("Simulate portal verification for a member (requires bot authorization).")
+                .setDescription("Simulate portal verification for a member (Master / Trusted only).")
                 .addUserOption(opt =>
                     opt
                         .setName("user")
                         .setDescription("The user to simulate portal verification for.")
                         .setRequired(true)
                 )
+        )
+        .addSubcommand(sub =>
+            sub
+                .setName("trust")
+                .setDescription("Grant /verify sim access to a user (Master user only).")
+                .addUserOption(opt =>
+                    opt
+                        .setName("user")
+                        .setDescription("The user to grant simulation trust to.")
+                        .setRequired(true)
+                )
+        )
+        .addSubcommand(sub =>
+            sub
+                .setName("untrust")
+                .setDescription("Revoke /verify sim access from a user (Master user only).")
+                .addUserOption(opt =>
+                    opt
+                        .setName("user")
+                        .setDescription("The user to revoke simulation trust from.")
+                        .setRequired(true)
+                )
+        )
+        .addSubcommand(sub =>
+            sub
+                .setName("trust-list")
+                .setDescription("List all users trusted to run verification simulation.")
         ),
 
     async execute(interaction, client) {
@@ -40,18 +70,149 @@ module.exports = {
 
         const subcommand = interaction.options.getSubcommand();
 
-        if (subcommand === "sim") {
-            const staffRoleId = client.config.clanManager?.staffRoleId || process.env.CLAN_STAFF_ROLE_ID;
-            const isStaff =
-                interaction.member.permissions.has(PermissionsBitField.Flags.Administrator) ||
-                interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild) ||
-                (staffRoleId && interaction.member.roles.cache.has(staffRoleId)) ||
-                interaction.user.id === interaction.guild.ownerId ||
-                interaction.user.id === process.env.developerId;
-
-            if (!isStaff) {
+        // -------------------------------
+        // Subcommand: /verify trust @user
+        // -------------------------------
+        if (subcommand === "trust") {
+            if (interaction.user.id !== MASTER_USER_ID) {
                 return await interaction.reply({
-                    content: "❌ You **do not** have permission to simulate verification. Clan Staff or Administrator permissions are required.",
+                    content: `❌ Only the authorized master (<@${MASTER_USER_ID}>) can use \`/verify trust\`.`,
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+
+            const targetUser = interaction.options.getUser("user");
+            if (targetUser.bot) {
+                return await interaction.reply({
+                    content: "❌ You cannot grant trust to a bot.",
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+
+            if (targetUser.id === MASTER_USER_ID) {
+                return await interaction.reply({
+                    content: `ℹ️ <@${MASTER_USER_ID}> is the master owner and already has permanent simulation access.`,
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+
+            const alreadyTrusted = await VerifyTrusted.findOne({ userId: targetUser.id }).catch(() => null);
+            if (alreadyTrusted) {
+                return await interaction.reply({
+                    content: `ℹ️ <@${targetUser.id}> (*${targetUser.tag}*) is **already** trusted to use \`/verify sim\`.`,
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+
+            await VerifyTrusted.create({
+                userId: targetUser.id,
+                addedBy: interaction.user.id
+            }).catch((err) => {
+                console.error("[TRUST ERROR]", err);
+            });
+
+            const embed = new EmbedBuilder()
+                .setTitle("🛡️ Verification Trust Granted")
+                .setColor(0x10b981)
+                .setDescription(
+                    `Successfully granted simulation permissions to <@${targetUser.id}> (*${targetUser.tag}*).\n\n` +
+                    `✅ **Status:** Trusted Member\n` +
+                    `They can now use \`/verify sim\` to simulate member verifications.`
+                )
+                .addFields(
+                    { name: "👤 Trusted Member", value: `<@${targetUser.id}> (\`${targetUser.id}\`)`, inline: true },
+                    { name: "👑 Authorized By", value: `<@${interaction.user.id}>`, inline: true }
+                )
+                .setFooter({ text: "STRIKERS Verification Engine • Access Control" })
+                .setTimestamp();
+
+            return await interaction.reply({ embeds: [embed] });
+        }
+
+        // -------------------------------
+        // Subcommand: /verify untrust @user
+        // -------------------------------
+        if (subcommand === "untrust") {
+            if (interaction.user.id !== MASTER_USER_ID) {
+                return await interaction.reply({
+                    content: `❌ Only the authorized master (<@${MASTER_USER_ID}>) can use \`/verify untrust\`.`,
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+
+            const targetUser = interaction.options.getUser("user");
+            if (targetUser.id === MASTER_USER_ID) {
+                return await interaction.reply({
+                    content: "❌ You cannot revoke trust from the master owner.",
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+
+            const removed = await VerifyTrusted.findOneAndDelete({ userId: targetUser.id }).catch(() => null);
+            if (!removed) {
+                return await interaction.reply({
+                    content: `⚠️ <@${targetUser.id}> (*${targetUser.tag}*) is not currently in the trusted list.`,
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+
+            const embed = new EmbedBuilder()
+                .setTitle("🗑️ Verification Trust Revoked")
+                .setColor(0xff3333)
+                .setDescription(
+                    `Revoked simulation access from <@${targetUser.id}> (*${targetUser.tag}*).\n\n` +
+                    `🚫 They can no longer use \`/verify sim\`.`
+                )
+                .setFooter({ text: "STRIKERS Verification Engine • Access Control" })
+                .setTimestamp();
+
+            return await interaction.reply({ embeds: [embed] });
+        }
+
+        // -------------------------------
+        // Subcommand: /verify trust-list
+        // -------------------------------
+        if (subcommand === "trust-list") {
+            const isMaster = interaction.user.id === MASTER_USER_ID;
+            const isTrusted = isMaster || (await VerifyTrusted.findOne({ userId: interaction.user.id }).catch(() => null));
+
+            if (!isTrusted) {
+                return await interaction.reply({
+                    content: `❌ Only the master owner (<@${MASTER_USER_ID}>) or trusted members can view the trusted list.`,
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+
+            const allTrusted = await VerifyTrusted.find({}).catch(() => []);
+            let listText = `👑 **Master Owner:** <@${MASTER_USER_ID}> (\`${MASTER_USER_ID}\`)\n\n`;
+
+            if (allTrusted.length === 0) {
+                listText += `*No additional trusted users have been added yet.*`;
+            } else {
+                listText += `**Trusted Members (${allTrusted.length}):**\n` +
+                    allTrusted.map((u, i) => `${i + 1}. <@${u.userId}> (\`${u.userId}\`) — Added <t:${Math.floor(new Date(u.addedAt).getTime() / 1000)}:R>`).join("\n");
+            }
+
+            const embed = new EmbedBuilder()
+                .setTitle("🛡️ Trusted Users List — /verify sim")
+                .setColor(0x00f5d4)
+                .setDescription(listText)
+                .setFooter({ text: "STRIKERS Access Control" })
+                .setTimestamp();
+
+            return await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+        }
+
+        // -------------------------------
+        // Subcommand: /verify sim @user
+        // -------------------------------
+        if (subcommand === "sim") {
+            const isMaster = interaction.user.id === MASTER_USER_ID;
+            const isTrusted = isMaster || (await VerifyTrusted.findOne({ userId: interaction.user.id }).catch(() => null));
+
+            if (!isTrusted) {
+                return await interaction.reply({
+                    content: `❌ You **do not** have permission to use \`/verify sim\`.\nOnly the authorized master (<@${MASTER_USER_ID}>) or trusted members can use this command.\nAsk <@${MASTER_USER_ID}> to grant you access via \`/verify trust\`.`,
                     flags: MessageFlags.Ephemeral
                 });
             }
