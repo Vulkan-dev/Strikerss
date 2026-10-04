@@ -12,7 +12,7 @@ const fs = require("fs");
 module.exports = {
   data: new SlashCommandBuilder()
     .setName(`help`)
-    .setDescription("Get information about the Razor Bot Commands."),
+    .setDescription("Get information about the STRIKERS Bot Commands."),
 
   async execute(interaction, client) {
     let servers = await client.guilds.cache.size;
@@ -134,20 +134,20 @@ module.exports = {
 
     const selectMenu = new StringSelectMenuBuilder()
       .setCustomId(`category-select`)
-      .setPlaceholder(`Razor | Help Menu`)
+      .setPlaceholder(`STRIKERS | Help Menu`)
       .addOptions(...dropdownOptions);
 
     const homeEmbed = new EmbedBuilder()
       .setAuthor({
-        name: "Razor",
+        name: "STRIKERS",
         iconURL: client.user.avatarURL(),
-        url: "https://discord.com/api/oauth2/authorize?client_id=1002188910560026634&permissions=8&scope=bot%20applications.commands",
+        url: `https://discord.com/api/oauth2/authorize?client_id=${client.user.id}&permissions=303600576574&scope=bot%20applications.commands`,
       })
       .setDescription(
         `• Hey! :wave:\n` +
           `• Total commands: ${client.commands.size}\n` +
-          `• Get [\`Razor\`](https://discord.com/api/oauth2/authorize?client_id=${client.user.id}&permissions=303600576574&scope=bot%20applications.commands) | [\`Support server\`](https://discord.gg/5FzKutmwSw) | [\`Vote Me\`](https://top.gg/bot/1002188910560026634/vote)\n` +
-          `• In \`${servers}\` servers with \`${users}\` members`
+          `• Dedicated Bot for **STRIKERS** Clan & Community\n` +
+          `• Serving \`${servers}\` server(s) with \`${users}\` member(s)`
       )
       .setImage(
         `https://media.discordapp.net/attachments/1077409692302721154/1089068340141641739/wallpaperflare.com_wallpaper.png?width=960&height=313`
@@ -185,15 +185,10 @@ module.exports = {
 
       .setThumbnail(client.user.avatarURL({ size: 512 }))
       .setFooter({
-        text: `Made with 💖 by @arpandevv`,
+        text: `STRIKERS Clan Core Engine`,
         iconURL: client.user.avatarURL(),
       })
       .setColor(client.config.embedColor);
-
-    const supportButton = new ButtonBuilder()
-      .setLabel("Support Server")
-      .setStyle(ButtonStyle.Link)
-      .setURL("https://discord.gg/5FzKutmwSw");
 
     const inviteButton = new ButtonBuilder()
       .setLabel("Invite Bot")
@@ -202,15 +197,8 @@ module.exports = {
         `https://discord.com/api/oauth2/authorize?client_id=${client.user.id}&permissions=303600576574&scope=bot%20applications.commands`
       );
 
-    const voteButton = new ButtonBuilder()
-      .setLabel("Vote Bot")
-      .setStyle(ButtonStyle.Link)
-      .setURL("https://top.gg/bot/1002188910560026634/vote");
-
     const buttonRow = new ActionRowBuilder().addComponents(
-      supportButton,
-      inviteButton,
-      voteButton
+      inviteButton
     );
     const selectRow = new ActionRowBuilder().addComponents(selectMenu);
 

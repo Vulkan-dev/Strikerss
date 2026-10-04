@@ -36,9 +36,9 @@ module.exports = {
         try {
             switch (sub) {
                 case "support":
-                    return await interaction.reply({ content: `https://discord.gg/YSv9VqQg6g` });
+                    return await interaction.reply({ content: "For support, please contact the server administrator or clan staff.", flags: MessageFlags.Ephemeral });
                 case "source-code":
-                    return await interaction.reply({ content: `[Source Code Available on BuiltByBit](https://builtbybit.com/resources/razor-an-all-in-one-discord-bot.29648/)` });
+                    return await interaction.reply({ content: "The STRIKERS bot source code is proprietary and private.", flags: MessageFlags.Ephemeral });
                 case "suggest":
                     return await handleSuggestion(interaction, client);
                 case "ping":
@@ -211,14 +211,6 @@ async function handleInfo(interaction, client) {
         new ButtonBuilder()
             .setURL(`https://discord.com/api/oauth2/authorize?client_id=${client.user.id}&permissions=303600576574&scope=bot%20applications.commands`)
             .setLabel("Invite Me")
-            .setStyle(ButtonStyle.Link),
-        new ButtonBuilder()
-            .setURL(`https://discord.gg/7BfRV7w6ha`)
-            .setLabel("Support Server")
-            .setStyle(ButtonStyle.Link),
-        new ButtonBuilder()
-            .setURL(`https://top.gg/bot/1002188910560026634/vote`)
-            .setLabel("Vote")
             .setStyle(ButtonStyle.Link)
     );
 

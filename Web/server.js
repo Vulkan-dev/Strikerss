@@ -1012,6 +1012,60 @@ function initOAuthServer(client) {
         }
     });
 
+    // Secure Moniker Locking Endpoint (Relays to Discord Webhook / Log Channel Server-Side)
+    app.post('/api/clan/moniker', async (req, res) => {
+        try {
+            const { discordId, username, moniker, style } = req.body || {};
+            if (!moniker) {
+                return res.status(400).json({ error: 'Moniker is required.' });
+            }
+
+            const cleanUsername = username || 'Applicant';
+            const cleanMoniker = String(moniker).trim();
+
+            const monikerDescription = [
+                "Applicant has finalized and locked their official clan moniker.",
+                "",
+                "👤 **Username**",
+                discordId ? `<@${discordId}> (\`${cleanUsername}\` / \`${discordId}\`)` : `\`${cleanUsername}\``,
+                "",
+                "🏷️ **Official Moniker**",
+                `\`${cleanMoniker}\``,
+                "",
+                "🎨 **Typography Style**",
+                `\`${style || 'Default'}\``,
+                "",
+                "🔒 **Status**",
+                "Locked for 30 days. Ready for official STRIKERS role assignment."
+            ].join("\n");
+
+            const webhookUrl = process.env.SECURITY_WEBHOOK_URL ||
+                client.config.securityWebhookUrl ||
+                client.config.clanManager?.webhookUrl;
+
+            if (webhookUrl) {
+                const axios = require('axios');
+                await axios.post(webhookUrl, {
+                    username: "⚡ 𝑺𝑻𝑹𝑰𝑲𝑬𝑹𝑺",
+                    embeds: [{
+                        title: "𝑶𝑭𝑭𝑰𝑪𝑰𝑨𝑳 𝑴𝑶𝑵𝑰𝑲𝑬𝑹 𝑳𝑶𝑮𝑮𝑬𝑫",
+                        description: monikerDescription,
+                        color: 0x1f1f1f,
+                        footer: {
+                            text: "STR Clan Review • Moniker Selection"
+                        },
+                        timestamp: new Date().toISOString()
+                    }]
+                }).catch(err => console.error('[MONIKER WEBHOOK ERROR]', err.message));
+            }
+
+            return res.json({ success: true, moniker: cleanMoniker });
+        } catch (err) {
+            console.error('[MONIKER ENDPOINT ERROR]', err);
+            return res.status(500).json({ error: 'Failed to record moniker: ' + (err.message || err) });
+        }
+    });
+
     // Honeypot Endpoint - Instantly bans intruders probing /admin
     app.post('/api/security/honeypot-ban', async (req, res) => {
         try {

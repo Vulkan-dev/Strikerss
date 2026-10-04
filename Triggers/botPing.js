@@ -43,11 +43,11 @@ module.exports = {
           },
           {
             name: "🔗 Invite Me",
-            value: `[Click here to invite Razor to your server!](https://discord.com/api/oauth2/authorize?client_id=${client.config.clientID}&permissions=8&scope=bot%20applications.commands)`,
+            value: `[Click here to invite Strikers to your server!](https://discord.com/api/oauth2/authorize?client_id=${client.config.clientID}&permissions=8&scope=bot%20applications.commands)`,
           }
         )
         .setFooter({
-          text: "Thanks for using Razor! We're always here to help.",
+          text: "Thanks for using Strikers! We're always here to help.",
         })
         .setTimestamp();
 

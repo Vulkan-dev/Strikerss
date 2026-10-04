@@ -229,7 +229,7 @@ module.exports = {
           const premiumembed = new EmbedBuilder()
               .setTitle('✨ **Premium Subscription**')
               .setAuthor({ name: '> Wah There!'})
-              .setDescription(`**• Premium Feature Discovered** \n> You **must** be a **Premium** user to use this command!\n**• Buy Premium**\n> https://discord.gg/qkZaSgGDuq`)
+              .setDescription(`**• Premium Feature Discovered** \n> You **must** be a **Premium** user to use this command!\n**• Access**\n> Contact server administration to unlock premium features.`)
               .setFooter({ text: `✨ Premium Required `})
               .setColor('Yellow')
               .setThumbnail('https://cdn.discordapp.com/attachments/1188547936494293012/1198638318011822232/Not-Background.png?ex=6648bdec&is=66476c6c&hm=870b4befd1993ac934fbaad15c46299cc54d4fe1a6eed4f4e8b965058b737692&')
