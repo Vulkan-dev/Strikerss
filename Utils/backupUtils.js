@@ -17,7 +17,7 @@ const JoinPingSchema     = require('../Schemas/joinping');
 const crypto = require('crypto');
 
 function generateBackupId() {
-    return 'XENON-' + crypto.randomBytes(4).toString('hex').toUpperCase();
+    return 'STRIKERS-' + crypto.randomBytes(4).toString('hex').toUpperCase();
 }
 
 async function retryOperation(operation, maxRetries = 3, delay = 1200) {
@@ -129,7 +129,7 @@ async function createGuildBackupData(guild) {
             }));
 
         // Roles sorted by position descending (highest first = correct hierarchy on restore)
-        // Xenon-grade: DO NOT filter out Administrator roles like DEV; keep all user roles!
+        // Strikers-grade: DO NOT filter out Administrator roles like DEV; keep all user roles!
         const everyonePerms = guild.roles.everyone?.permissions?.toArray() || [];
         const roles = guild.roles.cache
             .filter(r => !r.managed && r.name !== '@everyone')
