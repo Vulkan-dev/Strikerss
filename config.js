@@ -32,9 +32,9 @@ module.exports = {
 
   // Clan Name Manager & Verification Category
   clanManager: {
-    guildId: process.env.CLAN_GUILD_ID || "",
-    categoryId: process.env.CLAN_CATEGORY_ID || "",
-    staffRoleId: process.env.CLAN_STAFF_ROLE_ID || "",
+    guildId: process.env.CLAN_GUILD_ID || "1553407415523999824",
+    categoryId: process.env.CLAN_CATEGORY_ID || "1554194420377583708",
+    staffRoleId: process.env.CLAN_STAFF_ROLE_ID || "1553810081915600946",
     memberRoleId: process.env.CLAN_MEMBER_ROLE_ID || "",
     verifiedRoleId: process.env.VERIFIED_ROLE_ID || "1554580539082809490",
     webhookUrl: process.env.SECURITY_WEBHOOK_URL || "https://discord.com/api/webhooks/1556296965367791789/mL6O6JxySSy2FWxzlgcxTO2WvWuTW9hw5klrrC9DLtxhkZGAYr9PrWd_W_x46fcwq9kP"

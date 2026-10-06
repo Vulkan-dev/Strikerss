@@ -1228,26 +1228,23 @@ function initOAuthServer(client) {
                 return res.status(500).json({ error: 'Bot is not connected to any server to create channels.' });
             }
 
-            // Find category
-            let categoryId = client.config.clanManager?.categoryId;
+            // Find category (Target Category ID: 1554194420377583708)
+            let categoryId = client.config.clanManager?.categoryId || process.env.CLAN_CATEGORY_ID || "1554194420377583708";
             let parentCategory = null;
             if (categoryId) {
-                parentCategory = targetGuild.channels.cache.get(categoryId);
-            }
-            // If not found by ID, look for a category named "Verification" or "Applications"
-            if (!parentCategory) {
-                parentCategory = targetGuild.channels.cache.find(c =>
-                    c.type === ChannelType.GuildCategory &&
-                    (c.name.toLowerCase().includes('verif') || c.name.toLowerCase().includes('applicat') || c.name.toLowerCase().includes('clan'))
-                );
+                parentCategory = targetGuild.channels.cache.get(categoryId) ||
+                    await targetGuild.channels.fetch(categoryId).catch(() => null);
             }
 
-            // Clean channel name: `verify-username`
-            const sanitizedUser = username.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 20);
-            const channelName = `verify-${sanitizedUser}`;
+            // Channel named directly on application holder person
+            const cleanUserSlug = username.toLowerCase().replace(/[^a-z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 32) || `applicant-${discordId.slice(-4)}`;
+            const channelName = cleanUserSlug;
 
             // Check if a channel for this applicant already exists
-            const existingChannel = targetGuild.channels.cache.find(c => c.name === channelName && c.parentId === (parentCategory?.id || null));
+            const existingChannel = targetGuild.channels.cache.find(c =>
+                (c.name === channelName || c.name === `verify-${channelName}`) &&
+                c.parentId === (parentCategory?.id || categoryId)
+            );
             if (existingChannel) {
                 return res.json({
                     success: true,
@@ -1316,7 +1313,7 @@ function initOAuthServer(client) {
             const channel = await targetGuild.channels.create({
                 name: channelName,
                 type: ChannelType.GuildText,
-                parent: parentCategory ? parentCategory.id : null,
+                parent: parentCategory ? parentCategory.id : (categoryId || "1554194420377583708"),
                 topic: `STR Clan Intake Verification for <@${discordId}> (${username})`,
                 permissionOverwrites: permissionOverwrites
             });
@@ -1346,14 +1343,14 @@ function initOAuthServer(client) {
             const row = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
                     .setCustomId(`clan_approve_${discordId}`)
-                    .setLabel("Approve Applicant")
+                    .setLabel("Approve")
                     .setStyle(ButtonStyle.Success)
                     .setEmoji("✅"),
                 new ButtonBuilder()
                     .setCustomId(`clan_reject_${discordId}`)
-                    .setLabel("Reject & Close")
+                    .setLabel("Reject")
                     .setStyle(ButtonStyle.Danger)
-                    .setEmoji("✖️")
+                    .setEmoji("❌")
             );
 
             await channel.send({
