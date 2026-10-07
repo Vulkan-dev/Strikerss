@@ -34,25 +34,31 @@ async function sendWelcomeMessage(member, customChannelId = null) {
     if (!member || !member.guild) {
         return { success: false, error: "Invalid member or guild object." };
     }
-    if (mongoose.connection.readyState !== 1) {
-        return { success: false, error: "Database is not connected." };
+    let welcomeData = null;
+    if (mongoose.connection.readyState === 1) {
+        try {
+            const isActivated = await isGuildActivated(member.guild.id);
+            if (!isActivated) {
+                return { success: false, error: "Bot is inactive on this server." };
+            }
+            welcomeData = await WelcomeMessage.findOne({ guildId: member.guild.id });
+            if (welcomeData && welcomeData.enabled === false && !customChannelId) {
+                return { success: false, error: "Welcome messages are disabled for this server." };
+            }
+        } catch (dbErr) {
+            console.warn('[WELCOME] Database lookup warning, using default squad template:', dbErr.message);
+        }
     }
 
-    // Check if guild is activated
-    const isActivated = await isGuildActivated(member.guild.id);
-    if (!isActivated) {
-        return { success: false, error: "Bot is inactive on this server." };
-    }
-
-    const welcomeData = await WelcomeMessage.findOne({ guildId: member.guild.id });
-    if (welcomeData && welcomeData.enabled === false && !customChannelId) {
-        return { success: false, error: "Welcome messages are disabled for this server." };
-    }
-
-    const targetChannelId = customChannelId || welcomeData?.channelId;
-
+    // Priority for target channel:
+    // 1. Explicitly passed customChannelId
+    // 2. Database configured channelId
+    // 3. Known Strikers welcome channel 1554194442662051900
+    // 4. Any text channel in the guild matching "welcome"
+    let targetChannelId = customChannelId || welcomeData?.channelId;
     if (!targetChannelId) {
-        return { success: false, error: "No welcome channel configured for this server." };
+        const namedChan = member.guild.channels.cache.find(c => c.name.includes('welcome') && c.isTextBased());
+        targetChannelId = namedChan ? namedChan.id : "1554194442662051900";
     }
 
     const channel = member.guild.channels.cache.get(targetChannelId) 
@@ -68,9 +74,13 @@ async function sendWelcomeMessage(member, customChannelId = null) {
     // Stay sharp. Trust your team. Make your mark.
     let description;
     if (welcomeData?.message && welcomeData.message.trim() !== '') {
-        description = formatPlaceholders(welcomeData.message, member);
+        let msg = welcomeData.message;
+        if (!msg.includes('{user}') && !msg.includes('{username}') && !msg.includes('{displayName}')) {
+            msg = `Welcome, {user}\n\n` + msg;
+        }
+        description = formatPlaceholders(msg, member);
     } else {
-        description = `**Welcome, ${member.user}.**\n\n**You’re now part of the STRIKERS squad.**\n\n**Stay sharp. Trust your team. Make your mark.**`;
+        description = `Welcome, ${member.user}\n\n**You’re now part of the STRIKERS squad.**\n\n**Stay sharp. Trust your team. Make your mark.**`;
     }
 
     // Embed Color parsing
@@ -114,19 +124,25 @@ async function sendWelcomeMessage(member, customChannelId = null) {
     const sendOptions = { embeds: [embed] };
 
     // Image/GIF handling:
-    // Uses the STRIKERS emblem GIF (https://i.postimg.cc/d3XLkpHy/hmm.gif) as shown in the screenshot
-    const gifUrl = welcomeData?.image || "https://i.postimg.cc/d3XLkpHy/hmm.gif";
-    if (gifUrl && (gifUrl.startsWith("http://") || gifUrl.startsWith("https://"))) {
-        embed.setImage(gifUrl);
-    } else {
-        const localGifPath = path.join(__dirname, "../../Assets/hmm.gif");
-        const fallbackPath = path.join(__dirname, "../../Assets/1234.gif");
-        const activePath = fs.existsSync(localGifPath) ? localGifPath : (fs.existsSync(fallbackPath) ? fallbackPath : null);
-        if (activePath) {
-            const attachment = new AttachmentBuilder(activePath, { name: "welcome.gif" });
-            embed.setImage("attachment://welcome.gif");
-            sendOptions.files = [attachment];
-        }
+    // ALWAYS attach high-res local STRIKERS emblem GIF (Assets/hmm.gif) directly to the message!
+    // This avoids Discord proxy timeouts (which cause blank GIFs) and proxy downscaling (which cause tiny 180px thumbnails).
+    const localGifPath = path.join(__dirname, "../../Assets/hmm.gif");
+    const fallbackPath = path.join(__dirname, "../../Assets/1234.gif");
+    const activePath = fs.existsSync(localGifPath) ? localGifPath : (fs.existsSync(fallbackPath) ? fallbackPath : null);
+
+    const configuredImage = welcomeData?.image;
+    const isCustomUrl = configuredImage &&
+        (configuredImage.startsWith("http://") || configuredImage.startsWith("https://")) &&
+        !configuredImage.includes("i.postimg.cc/d3XLkpHy/hmm.gif");
+
+    if (isCustomUrl) {
+        embed.setImage(configuredImage);
+    } else if (activePath) {
+        const attachment = new AttachmentBuilder(activePath, { name: "welcome.gif" });
+        embed.setImage("attachment://welcome.gif");
+        sendOptions.files = [attachment];
+    } else if (configuredImage) {
+        embed.setImage(configuredImage);
     }
 
     try {

@@ -8,34 +8,48 @@ module.exports = {
     async execute(message, client) {
         if (!message.guild || message.author.bot) return;
 
-        const content = message.content.trim();
-        const prefix = "?";
+        const content = message.content.trim().toLowerCase();
+        const matched = ["?welcome", "!welcome", "/welcome", "?testwelcome", "!testwelcome"].some(p => content.startsWith(p));
+        if (!matched) return;
 
-        if (content.toLowerCase().startsWith(prefix + "welcome") || content.toLowerCase().startsWith(prefix + "testwelcome")) {
-            const isAdmin = message.member.permissions.has(PermissionsBitField.Flags.ManageGuild) ||
-                            message.member.permissions.has(PermissionsBitField.Flags.Administrator) ||
-                            message.author.id === message.guild.ownerId ||
-                            message.author.id === process.env.developerId;
+        const staffRoleId = process.env.CLAN_STAFF_ROLE_ID || "1553810081915600946";
+        const isStaff = message.member.permissions.has(PermissionsBitField.Flags.ManageGuild) ||
+                        message.member.permissions.has(PermissionsBitField.Flags.ManageMessages) ||
+                        message.member.permissions.has(PermissionsBitField.Flags.Administrator) ||
+                        message.member.roles.cache.has(staffRoleId) ||
+                        message.author.id === message.guild.ownerId ||
+                        message.author.id === process.env.developerId;
 
-            if (!isAdmin) return;
+        if (!isStaff) return;
 
-            if (content.toLowerCase().startsWith(prefix + "testwelcome")) {
-                const data = await WelcomeMessage.findOne({ guildId: message.guild.id });
-                if (!data || !data.channelId) {
-                    return message.reply("⚠️ No welcome channel configured yet. Run `?welcome #channel` or `/welcome channel:#channel`.").catch(() => {});
-                }
-                const res = await sendWelcomeMessage(message.member, data.channelId);
-                if (res.success) {
-                    return message.reply(`✅ Sent test welcome message to <#${data.channelId}>!`).catch(() => {});
-                } else {
-                    return message.reply(`❌ Could not send test welcome: ${res.error || "Unknown error"}`).catch(() => {});
-                }
+        if (content.startsWith("?testwelcome") || content.startsWith("!testwelcome")) {
+            const data = await WelcomeMessage.findOne({ guildId: message.guild.id }).catch(() => null);
+            const channelId = data?.channelId || "1554194442662051900";
+            const res = await sendWelcomeMessage(message.member, channelId);
+            if (res.success) {
+                return message.reply(`✅ Sent test welcome message to <#${channelId}>!`).catch(() => {});
+            } else {
+                return message.reply(`❌ Could not send test welcome: ${res.error || "Unknown error"}`).catch(() => {});
             }
+        }
 
-            const channel = message.mentions.channels.first();
-            if (!channel) {
-                return message.reply("⚠️ Please mention a channel to set for welcome messages: `?welcome #welcome` (or use `/welcome channel:#welcome`).").catch(() => {});
+        // If a member is mentioned: ?welcome @user -> welcomes that user!
+        const targetMember = message.mentions.members.first();
+        if (targetMember) {
+            const data = await WelcomeMessage.findOne({ guildId: message.guild.id }).catch(() => null);
+            const channelId = data?.channelId || "1554194442662051900";
+            const res = await sendWelcomeMessage(targetMember, channelId);
+            if (res.success) {
+                return message.reply(`✅ Successfully welcomed ${targetMember.user} in <#${channelId}>!`).catch(() => {});
+            } else {
+                return message.reply(`❌ Could not send welcome: ${res.error || "Unknown error"}`).catch(() => {});
             }
+        }
+
+        const channel = message.mentions.channels.first();
+        if (!channel) {
+            return message.reply("⚠️ Usage: `?welcome @user` (to welcome a member) or `?welcome #channel` (to configure channel).").catch(() => {});
+        }
 
             await WelcomeMessage.findOneAndUpdate(
                 { guildId: message.guild.id },
